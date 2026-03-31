@@ -55,9 +55,11 @@ Set a custom OpenAI endpoint with `OPENAI_API_URL` to use OpenRouter
 
 `ANTHROPIC_MODEL` and `ANTHROPIC_SMALL_MODEL` are supported with the `<provider>/` syntax.
 
-### Cursor Authentication
+### Cursor Support
 
-To use Cursor models, you need to authenticate once:
+Cursor support is built-in - no additional installation required.
+
+Authenticate once:
 
 ```bash
 anyclaude cursor-auth
@@ -69,12 +71,6 @@ Then run Claude Code with Cursor:
 
 ```bash
 anyclaude --model cursor/composer-2
-```
-
-**Note:** Cursor requires the `opencode-cursor` proxy to be installed:
-
-```bash
-npm install -g opencode-cursor
 ```
 
 ### How does this work?
