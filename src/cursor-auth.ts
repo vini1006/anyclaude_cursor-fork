@@ -13,7 +13,7 @@ const POLL_BACKOFF_MULTIPLIER = 1.2;
 // Token expiry safety margin (5 minutes)
 const TOKEN_SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
-interface PKCEParams {
+export interface PKCEParams {
   verifier: string;
   challenge: string;
   uuid: string;
@@ -103,7 +103,7 @@ export function parseTokenExpiry(token: string): number {
     }
 
     const payload = parts[1];
-    const decoded = Buffer.from(payload!, "base64url").toString("utf8");
+    const decoded = Buffer.from(payload ?? "", "base64url").toString("utf8");
     const payloadObj = JSON.parse(decoded);
 
     if (payloadObj.exp) {

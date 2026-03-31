@@ -1,15 +1,6 @@
-import { debug } from "./debug";
-import { mkdir, writeFile, readFile, access } from "fs/promises";
-import { dirname } from "path";
-import { join } from "path";
-
-const SAFETY_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
-
-export interface CursorCredentials {
-  access: string;        // JWT access token
-  refresh: string;       // Refresh token
-  expires: number;       // Expiry timestamp (ms)
-}
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 export interface CursorTokens {
   accessToken: string;
@@ -17,188 +8,136 @@ export interface CursorTokens {
   expires: number;
 }
 
-export interface TokenFile {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt?: number;
+export function getCursorStoragePath(): string {
+  const dataHome = process.env.XDG_DATA_HOME;
+  const baseDir = dataHome || path.join(os.homedir(), ".local", "share");
+  return path.join(baseDir, "anyclaude", "cursor-auth.json");
 }
 
-export function getCursorStoragePath(): string {
-  return join(
-    process.env.HOME || process.env.USERPROFILE || "~",
-    ".local",
-    "share",
-    "opencode",
-    "auth.json"
-  );
+function ensureStorageDirectory(storagePath: string): void {
+  const dir = path.dirname(storagePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
 }
 
 export class TokenManager {
-  private tokenPath: string;
+  constructor(private storagePath: string = getCursorStoragePath()) {}
 
-  constructor(tokenPath?: string) {
-    this.tokenPath = tokenPath || join(
-      process.env.HOME || process.env.USERPROFILE || "~",
-      ".local",
-      "share",
-      "opencode",
-      "auth.json"
-    );
-  }
-
-  /**
-   * Load tokens from the token file
-   * @returns TokenFile if valid, null if file doesn't exist or is invalid
-   */
-  async loadTokens(): Promise<TokenFile | null> {
+  async loadTokens(): Promise<CursorTokens | null> {
     try {
-      await access(this.tokenPath);
-    } catch {
-      debug(2, `Token file not found: ${this.tokenPath}`);
-      return null;
-    }
-
-    try {
-      const content = await readFile(this.tokenPath, "utf-8");
-      const data = JSON.parse(content);
-
-      // Validate required fields
-      if (!data.accessToken || !data.refreshToken) {
-        debug(1, "Token file missing required fields");
+      if (!fs.existsSync(this.storagePath)) {
         return null;
       }
 
-      return {
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: data.expiresAt,
-      };
+      const content = await fs.promises.readFile(this.storagePath, "utf8");
+      const tokens = JSON.parse(content) as CursorTokens;
+
+      if (
+        !tokens.accessToken ||
+        !tokens.refreshToken ||
+        !tokens.expires
+      ) {
+        return null;
+      }
+
+      return tokens;
     } catch (error) {
-      debug(1, `Failed to load tokens: ${(error as Error).message}`);
       return null;
     }
   }
 
-  /**
-   * Save tokens to the token file
-   */
-  async saveTokens(tokens: TokenFile): Promise<void> {
-    try {
-      const dir = dirname(this.tokenPath);
-      await mkdir(dir, { recursive: true });
-      await writeFile(this.tokenPath, JSON.stringify(tokens, null, 2), {
-        mode: 0o600, // Read/write for owner only
-      });
-      debug(2, `Tokens saved to ${this.tokenPath}`);
-    } catch (error) {
-      debug(1, `Failed to save tokens: ${(error as Error).message}`);
-      throw error;
-    }
+  async saveTokens(tokens: CursorTokens): Promise<void> {
+    ensureStorageDirectory(this.storagePath);
+
+    const content = JSON.stringify(tokens, null, 2);
+    await fs.promises.writeFile(this.storagePath, content, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
   }
 
-  /**
-   * Refresh tokens using the refresh token
-   * @param refreshToken - The refresh token to use
-   * @returns New access and refresh tokens
-   */
-  async refreshTokens(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-    if (!refreshToken || typeof refreshToken !== 'string') {
-      throw new Error('Invalid refresh token');
-    }
+  needsRefresh(tokens: CursorTokens): boolean {
+    const now = Date.now();
+    const safetyMargin = 5 * 60 * 1000;
+    return now >= tokens.expires - safetyMargin;
+  }
 
-    const url = process.env.CURSOR_REFRESH_URL || "https://api2.cursor.sh/auth/exchange_user_api_key";
+  async refreshTokens(refreshToken: string): Promise<CursorTokens> {
+    const apiUrl = process.env.CURSOR_API_URL || "https://api2.cursor.sh";
+    const refreshUrl = `${apiUrl}/auth/exchange_user_api_key`;
 
-    debug(2, `Refreshing tokens from ${url}`);
-
-    const response = await fetch(url, {
+    const response = await fetch(refreshUrl, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${refreshToken}`,
         "Content-Type": "application/json",
+        Authorization: `Bearer ${refreshToken}`,
       },
       body: JSON.stringify({}),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      debug(1, `Token refresh failed: ${response.status} ${errorText}`);
-      throw new Error(`Token refresh failed: ${response.status}`);
+      throw new Error(
+        `Token refresh failed: ${response.status} ${response.statusText}`
+      );
     }
 
-    const data = await response.json() as { accessToken: string; refreshToken: string };
-    debug(2, "Tokens refreshed successfully");
+    const data = await response.json() as { accessToken?: string; refreshToken?: string };
+    if (!data.accessToken || !data.refreshToken) {
+      throw new Error("Invalid token refresh response");
+    }
+
+    const expiry = this.parseTokenExpiry(data.accessToken);
 
     return {
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
+      expires: expiry,
     };
   }
 
-  /**
-   * Parse the expiry time from a JWT token
-   * @param token - The JWT access token
-   * @returns Expiry timestamp in milliseconds, or 0 if parsing fails
-   */
-  parseTokenExpiry(token: string): number {
+  private parseTokenExpiry(token: string): number {
     try {
       const parts = token.split(".");
       if (parts.length !== 3) {
-        debug(2, "Invalid JWT format");
-        return 0;
+        throw new Error("Invalid JWT format");
       }
 
-      const payload = JSON.parse(Buffer.from(parts[1]!, "base64").toString("utf-8"));
-      if (payload.exp) {
-        const expiry = payload.exp * 1000 - SAFETY_MARGIN_MS;
-        debug(2, `Token expires at ${new Date(expiry).toISOString()}`);
-        return expiry;
+      const payload = parts[1];
+      const decoded = Buffer.from(payload ?? "", "base64url").toString("utf8");
+      const payloadObj = JSON.parse(decoded);
+
+      if (payloadObj.exp) {
+        return payloadObj.exp * 1000 - 5 * 60 * 1000;
       }
-      debug(2, "No exp claim in token");
-      return 0;
     } catch (error) {
-      debug(2, `Failed to parse token expiry: ${(error as Error).message}`);
-      // Ignore parsing errors, use default
-      return 0;
+      // Ignore parsing errors
     }
+
+    return Date.now() + 60 * 60 * 1000 - 5 * 60 * 1000;
   }
 
-  /**
-   * Get a valid access token, refreshing if necessary
-   * @param forceRefresh - Force a token refresh even if current token is valid
-   * @returns Valid access token, or null if unable to get one
-   */
-  async getValidAccessToken(forceRefresh = false): Promise<string | null> {
+  async getValidAccessToken(): Promise<string> {
     const tokens = await this.loadTokens();
 
     if (!tokens) {
-      debug(1, "No tokens available");
-      return null;
+      throw new Error(
+        "Cursor authentication not found. Run 'anyclaude cursor-auth' to authenticate."
+      );
     }
 
-    const now = Date.now();
-    const needsRefresh = forceRefresh || !tokens.expiresAt || tokens.expiresAt < now;
-
-    if (needsRefresh) {
-      debug(2, "Token needs refresh");
+    if (this.needsRefresh(tokens)) {
       try {
         const refreshed = await this.refreshTokens(tokens.refreshToken);
-        const expiresAt = this.parseTokenExpiry(refreshed.accessToken);
-
-        const newTokens: TokenFile = {
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken,
-          expiresAt,
-        };
-
-        await this.saveTokens(newTokens);
+        await this.saveTokens(refreshed);
         return refreshed.accessToken;
       } catch (error) {
-        debug(1, `Failed to refresh token: ${(error as Error).message}`);
-        return null;
+        throw new Error(
+          "Cursor token refresh failed. Please run 'anyclaude cursor-auth' to re-authenticate."
+        );
       }
     }
 
-    debug(2, "Using cached access token");
     return tokens.accessToken;
   }
 }
