@@ -147,6 +147,7 @@ interface ActiveBridge {
   blobStore: Map<string, Uint8Array>;
   mcpTools: McpToolDefinition[];
   pendingExecs: PendingExec[];
+  convKey: string;
 }
 
 // Active bridges keyed by a session token (derived from conversation state).
@@ -166,8 +167,14 @@ const CONVERSATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function evictStaleConversations(): void {
   const now = Date.now();
+  const activeConvKeys = new Set(
+    [...activeBridges.values()].map((b) => b.convKey)
+  );
   for (const [key, stored] of conversationStates) {
-    if (now - stored.lastAccessMs > CONVERSATION_TTL_MS) {
+    if (
+      now - stored.lastAccessMs > CONVERSATION_TTL_MS &&
+      !activeConvKeys.has(key)
+    ) {
       conversationStates.delete(key);
     }
   }
@@ -489,6 +496,13 @@ function handleChatCompletion(
   const bridgeKey = deriveBridgeKey(modelId, body.messages);
   const convKey = deriveConversationKey(body.messages);
   const activeBridge = activeBridges.get(bridgeKey);
+
+  if (!activeBridge && toolResults.length > 0) {
+    debug(
+      1,
+      `No active bridge for tool result resume (bridgeKey=${bridgeKey.slice(0, 8)}..., ${activeBridges.size} bridges active)`
+    );
+  }
 
   if (activeBridge && toolResults.length > 0) {
     activeBridges.delete(bridgeKey);
@@ -1016,6 +1030,12 @@ function handleKvMessage(
     const blobId = kvMsg.message.value.blobId;
     const blobIdKey = Buffer.from(blobId).toString("hex");
     const blobData = blobStore.get(blobIdKey);
+    if (!blobData) {
+      debug(
+        1,
+        `Blob not found: key=${blobIdKey.slice(0, 16)}... (store size=${blobStore.size})`
+      );
+    }
     sendKvResponse(
       kvMsg,
       "getBlobResult",
@@ -1400,6 +1420,14 @@ function createBridgeStreamResponse(
                   })
                 );
 
+                // Sync blobs immediately so they survive if bridge closes before resume.
+                const storedForSync = conversationStates.get(convKey);
+                if (storedForSync) {
+                  for (const [k, v] of blobStore)
+                    storedForSync.blobStore.set(k, v);
+                  storedForSync.lastAccessMs = Date.now();
+                }
+
                 // Keep the bridge alive for tool result continuation.
                 activeBridges.set(bridgeKey, {
                   bridge,
@@ -1407,6 +1435,7 @@ function createBridgeStreamResponse(
                   blobStore,
                   mcpTools,
                   pendingExecs: state.pendingExecs,
+                  convKey,
                 });
 
                 sendSSE(makeChunk({}, "tool_calls"));
