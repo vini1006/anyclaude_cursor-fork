@@ -2,16 +2,15 @@ import { describe, test, expect } from "bun:test";
 import { findAvailablePort, startCursorProxy } from "./cursor-proxy";
 
 describe("findAvailablePort", () => {
-  test("finds an available port", async () => {
+  test("returns 0 for internal proxy", async () => {
     const port = await findAvailablePort();
-    expect(port).toBeGreaterThan(0);
-    expect(port).toBeLessThanOrEqual(65535);
+    expect(port).toBe(0);
   });
 });
 
 describe("startCursorProxy", () => {
-  test.skip("starts proxy and returns URL", async () => {
-    // Skip - requires opencode-cursor to be installed
+  test.skip("starts internal proxy and returns URL", async () => {
+    // Skip - requires valid Cursor authentication
     const { url, stop } = await startCursorProxy();
     expect(url).toMatch(/^http:\/\/localhost:\d+$/);
     await stop();
