@@ -28,7 +28,7 @@
     "@types/yargs-parser": "^21.0.3",
     "ai": "^5.0.8",
     "prettier": "^3.6.2",
-    "zod": "3.25.76"
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -43,9 +43,10 @@
     "install:global": "bun run build && npm pack --silent && npm install -g anyclaude-*.tgz"
   },
   "dependencies": {
-    "yargs-parser": "^22.0.0",
+    "@bufbuild/protobuf": "^2.11.0",
     "json-schema": "^0.4.0",
-    "open": "^9.1.0"
+    "open": "^9.1.0",
+    "yargs-parser": "^22.0.0"
   },
   "prettier": {
     "printWidth": 80,
