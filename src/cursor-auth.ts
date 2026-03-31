@@ -3,6 +3,7 @@ import * as path from "path";
 import open from "open";
 import { TokenManager, type CursorTokens, getCursorStoragePath } from "./token-manager";
 import { debug, queueErrorMessage } from "./debug";
+import { generatePKCE, type PKCEParams } from "./cursor/cursor-pkce";
 
 // Polling configuration constants
 const POLL_MAX_ATTEMPTS = 150;
@@ -13,25 +14,8 @@ const POLL_BACKOFF_MULTIPLIER = 1.2;
 // Token expiry safety margin (5 minutes)
 const TOKEN_SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
-export interface PKCEParams {
-  verifier: string;
-  challenge: string;
-  uuid: string;
-}
-
-export async function generatePKCE(): Promise<PKCEParams> {
-  const verifierBytes = crypto.getRandomValues(new Uint8Array(96));
-  const verifier = Buffer.from(verifierBytes).toString("base64url");
-
-  const encoder = new TextEncoder();
-  const verifierData = encoder.encode(verifier);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", verifierData);
-  const challenge = Buffer.from(hashBuffer).toString("base64url");
-
-  const uuid = crypto.randomUUID();
-
-  return { verifier, challenge, uuid };
-}
+// Re-export for backward compatibility
+export { generatePKCE, type PKCEParams };
 
 export function buildLoginUrl(params: PKCEParams): string {
   const baseUrl = "https://cursor.com/loginDeepControl";
