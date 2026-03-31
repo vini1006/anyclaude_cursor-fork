@@ -44,7 +44,8 @@
   },
   "dependencies": {
     "yargs-parser": "^22.0.0",
-    "json-schema": "^0.4.0"
+    "json-schema": "^0.4.0",
+    "open": "^9.1.0"
   },
   "prettier": {
     "printWidth": 80,
