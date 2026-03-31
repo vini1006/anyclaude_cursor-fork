@@ -49,10 +49,33 @@ See [the providers](./src/main.ts#L17) for the implementation.
 - `GOOGLE_API_KEY` supports `google/*` models.
 - `OPENAI_API_KEY` supports `openai/*` models.
 - `XAI_API_KEY` supports `xai/*` models.
+- `CURSOR_OAUTH_TOKEN` supports `cursor/*` models (OAuth authentication).
 
 Set a custom OpenAI endpoint with `OPENAI_API_URL` to use OpenRouter
 
 `ANTHROPIC_MODEL` and `ANTHROPIC_SMALL_MODEL` are supported with the `<provider>/` syntax.
+
+### Cursor Authentication
+
+To use Cursor models, you need to authenticate once:
+
+```bash
+anyclaude cursor-auth
+```
+
+This opens a browser window for OAuth authentication. After successful authentication, tokens are stored in `~/.local/share/opencode/auth.json`.
+
+Then run Claude Code with Cursor:
+
+```bash
+anyclaude --model cursor/composer-2
+```
+
+**Note:** Cursor requires the `opencode-cursor` proxy to be installed:
+
+```bash
+npm install -g opencode-cursor
+```
 
 ### How does this work?
 

@@ -43,3 +43,4 @@
 
 - Never commit API keys. Use `direnv` for local secrets and keep `.envrc` minimal.
 - Provider envs: `OPENAI_*`, `GOOGLE_*`, `XAI_*`, `AZURE_*`, optional `ANTHROPIC_*`. Use `PROXY_ONLY=true` to inspect the proxy without launching Claude.
+- Cursor: OAuth authentication via `anyclaude cursor-auth`, tokens in `~/.local/share/opencode/auth.json`. Requires `opencode-cursor` to be installed globally.
