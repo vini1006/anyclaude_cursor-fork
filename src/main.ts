@@ -158,11 +158,6 @@ const providers: CreateAnthropicProxyOptions["providers"] = {
     apiKey: process.env.XAI_API_KEY,
     baseURL: process.env.XAI_API_URL,
   }),
-  cursor: {
-    languageModel: (modelId: string) => {
-      throw new Error("Cursor provider not initialized");
-    },
-  } as any,
 };
 
 // We exclude this by default, because the Claude Code
