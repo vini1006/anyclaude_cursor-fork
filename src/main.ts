@@ -10,6 +10,7 @@ import {
   createAnthropicProxy,
   type CreateAnthropicProxyOptions,
 } from "./anthropic-proxy";
+import { debug } from "./debug";
 import yargsParser from "yargs-parser";
 
 const FLAGS = {
@@ -83,6 +84,17 @@ const rawArgs = process.argv.slice(2);
 const { reasoningEffort, serviceTier, filteredArgs, helpRequested } =
   parseAnyclaudeFlags(rawArgs);
 
+// Check for cursor-auth command
+if (process.argv[2] === "cursor-auth") {
+  import("./cursor-auth").then(({ runCursorAuth }) => {
+    runCursorAuth().catch((error) => {
+      console.error("Error:", error.message);
+      process.exit(1);
+    });
+  });
+  process.exit(0);
+}
+
 for (const [key, spec] of Object.entries(FLAGS) as Array<
   [keyof typeof FLAGS, (typeof FLAGS)[keyof typeof FLAGS]]
 >) {
@@ -146,6 +158,11 @@ const providers: CreateAnthropicProxyOptions["providers"] = {
     apiKey: process.env.XAI_API_KEY,
     baseURL: process.env.XAI_API_URL,
   }),
+  cursor: {
+    languageModel: (modelId: string) => {
+      throw new Error("Cursor provider not initialized");
+    },
+  },
 };
 
 // We exclude this by default, because the Claude Code
@@ -155,6 +172,40 @@ if (process.env.ANTHROPIC_API_KEY) {
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_API_URL,
   });
+}
+
+// Initialize Cursor provider if cursor model is requested
+const requestedModel = filteredArgs.find(
+  (arg) => arg.startsWith("--model=") || arg === "--model",
+);
+if (requestedModel) {
+  const modelValue = requestedModel.includes("=")
+    ? requestedModel.split("=")[1]
+    : filteredArgs[filteredArgs.indexOf(requestedModel) + 1];
+
+  if (modelValue?.startsWith("cursor/")) {
+    debug(1, "Cursor model detected, starting proxy...");
+
+    const { startCursorProxy } = await import("./cursor-proxy");
+    const { createCursorProviderWithBaseUrl } = await import(
+      "./cursor-provider"
+    );
+
+    const { url, stop } = await startCursorProxy();
+    providers.cursor = createCursorProviderWithBaseUrl(url);
+
+    process.on("exit", () => stop());
+    process.on("SIGINT", () => {
+      stop();
+      process.exit(130);
+    });
+    process.on("SIGTERM", () => {
+      stop();
+      process.exit(143);
+    });
+
+    debug(1, `Cursor proxy started at ${url}`);
+  }
 }
 
 const proxyURL = createAnthropicProxy({
