@@ -3,9 +3,7 @@ import { TokenManager } from "./token-manager";
 import { debug } from "./debug";
 
 export function createCursorProvider(): {
-  languageModel: (
-    modelId: string,
-  ) => ReturnType<OpenAIProvider["chat"]>;
+  languageModel: (modelId: string) => ReturnType<OpenAIProvider["chat"]>;
 } {
   const tokenManager = new TokenManager();
 
@@ -21,7 +19,9 @@ export function createCursorProvider(): {
           try {
             const accessToken = await tokenManager.getValidAccessToken();
 
-            const headers = new Headers((init?.headers as Record<string, string>) || {});
+            const headers = new Headers(
+              (init?.headers as Record<string, string>) || {}
+            );
             headers.set("Authorization", `Bearer ${accessToken}`);
 
             debug(2, `Cursor API request to ${url}`);
@@ -49,7 +49,7 @@ export function createCursorProviderWithBaseUrl(baseUrl: string) {
       const cursorModelId = modelId.replace(/^cursor\//, "");
       debug(
         1,
-        `Cursor provider (base: ${baseUrl}): ${modelId} -> ${cursorModelId}`,
+        `Cursor provider (base: ${baseUrl}): ${modelId} -> ${cursorModelId}`
       );
 
       const openaiProvider = createOpenAI({
@@ -58,7 +58,9 @@ export function createCursorProviderWithBaseUrl(baseUrl: string) {
         fetch: (async (url: string | URL | Request, init?: RequestInit) => {
           const accessToken = await tokenManager.getValidAccessToken();
 
-          const headers = new Headers((init?.headers as Record<string, string>) || {});
+          const headers = new Headers(
+            (init?.headers as Record<string, string>) || {}
+          );
           headers.set("Authorization", `Bearer ${accessToken}`);
 
           return globalThis.fetch(url, { ...init, headers });

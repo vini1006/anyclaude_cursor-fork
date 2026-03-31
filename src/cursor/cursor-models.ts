@@ -27,8 +27,8 @@ const CursorModelDetailsSchema = z.object({
     .catch([])
     .transform((aliases) =>
       (aliases ?? []).filter(
-        (alias: unknown): alias is string => typeof alias === "string",
-      ),
+        (alias: unknown): alias is string => typeof alias === "string"
+      )
     ),
   thinkingDetails: z.unknown().optional(),
 });
@@ -45,28 +45,112 @@ export interface CursorModel {
 
 const FALLBACK_MODELS: CursorModel[] = [
   // Claude models
-  { id: "claude-4.5-sonnet", name: "Claude 4.5 Sonnet", reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
-  { id: "claude-4.6-opus-high", name: "Claude 4.6 Opus", reasoning: true, contextWindow: 200_000, maxTokens: 128_000 },
-  { id: "claude-4.6-sonnet-medium", name: "Claude 4.6 Sonnet", reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
+  {
+    id: "claude-4.5-sonnet",
+    name: "Claude 4.5 Sonnet",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
+  {
+    id: "claude-4.6-opus-high",
+    name: "Claude 4.6 Opus",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 128_000,
+  },
+  {
+    id: "claude-4.6-sonnet-medium",
+    name: "Claude 4.6 Sonnet",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
   // Composer models
-  { id: "composer-1", name: "Composer 1", reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
-  { id: "composer-1.5", name: "Composer 1.5", reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
-  { id: "composer-2", name: "Composer 2", reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
-  { id: "composer-2-fast", name: "Composer 2 Fast", reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
+  {
+    id: "composer-1",
+    name: "Composer 1",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
+  {
+    id: "composer-1.5",
+    name: "Composer 1.5",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
+  {
+    id: "composer-2",
+    name: "Composer 2",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
+  {
+    id: "composer-2-fast",
+    name: "Composer 2 Fast",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
   // Gemini models
-  { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro", reasoning: true, contextWindow: 1_000_000, maxTokens: 64_000 },
+  {
+    id: "gemini-3.1-pro",
+    name: "Gemini 3.1 Pro",
+    reasoning: true,
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+  },
   // GPT models
-  { id: "gpt-5.2", name: "GPT-5.2", reasoning: true, contextWindow: 400_000, maxTokens: 128_000 },
-  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", reasoning: true, contextWindow: 400_000, maxTokens: 128_000 },
-  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", reasoning: true, contextWindow: 400_000, maxTokens: 128_000 },
-  { id: "gpt-5.3-codex-spark-preview", name: "GPT-5.3 Codex Spark", reasoning: true, contextWindow: 128_000, maxTokens: 128_000 },
-  { id: "gpt-5.4-medium", name: "GPT-5.4", reasoning: true, contextWindow: 272_000, maxTokens: 128_000 },
+  {
+    id: "gpt-5.2",
+    name: "GPT-5.2",
+    reasoning: true,
+    contextWindow: 400_000,
+    maxTokens: 128_000,
+  },
+  {
+    id: "gpt-5.2-codex",
+    name: "GPT-5.2 Codex",
+    reasoning: true,
+    contextWindow: 400_000,
+    maxTokens: 128_000,
+  },
+  {
+    id: "gpt-5.3-codex",
+    name: "GPT-5.3 Codex",
+    reasoning: true,
+    contextWindow: 400_000,
+    maxTokens: 128_000,
+  },
+  {
+    id: "gpt-5.3-codex-spark-preview",
+    name: "GPT-5.3 Codex Spark",
+    reasoning: true,
+    contextWindow: 128_000,
+    maxTokens: 128_000,
+  },
+  {
+    id: "gpt-5.4-medium",
+    name: "GPT-5.4",
+    reasoning: true,
+    contextWindow: 272_000,
+    maxTokens: 128_000,
+  },
   // Grok models
-  { id: "grok-code-fast-1", name: "Grok Code Fast 1", reasoning: false, contextWindow: 128_000, maxTokens: 64_000 },
+  {
+    id: "grok-code-fast-1",
+    name: "Grok Code Fast 1",
+    reasoning: false,
+    contextWindow: 128_000,
+    maxTokens: 64_000,
+  },
 ];
 
 async function fetchCursorUsableModels(
-  apiKey: string,
+  apiKey: string
 ): Promise<CursorModel[] | null> {
   try {
     const requestPayload = create(GetUsableModelsRequestSchema, {});
@@ -78,8 +162,15 @@ async function fetchCursorUsableModels(
       requestBody,
     });
 
-    if (response.timedOut || response.exitCode !== 0 || response.body.length === 0) {
-      debug(1, `Cursor model discovery failed: timedOut=${response.timedOut}, exitCode=${response.exitCode}, bodyLength=${response.body.length}`);
+    if (
+      response.timedOut ||
+      response.exitCode !== 0 ||
+      response.body.length === 0
+    ) {
+      debug(
+        1,
+        `Cursor model discovery failed: timedOut=${response.timedOut}, exitCode=${response.exitCode}, bodyLength=${response.body.length}`
+      );
       return null;
     }
 
@@ -97,7 +188,10 @@ async function fetchCursorUsableModels(
 
     return models;
   } catch (error) {
-    debug(1, `Cursor model discovery failed with error: ${error instanceof Error ? error.message : String(error)}`);
+    debug(
+      1,
+      `Cursor model discovery failed with error: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 }
@@ -110,12 +204,11 @@ let cachedModels: CursorModel[] | null = null;
  * Falls back to a hardcoded list if discovery fails.
  * Results are cached after the first successful call.
  */
-export async function getCursorModels(
-  apiKey: string,
-): Promise<CursorModel[]> {
+export async function getCursorModels(apiKey: string): Promise<CursorModel[]> {
   if (cachedModels) return cachedModels;
   const discovered = await fetchCursorUsableModels(apiKey);
-  cachedModels = discovered && discovered.length > 0 ? discovered : FALLBACK_MODELS;
+  cachedModels =
+    discovered && discovered.length > 0 ? discovered : FALLBACK_MODELS;
   return cachedModels;
 }
 
@@ -149,7 +242,7 @@ function decodeConnectUnaryBody(payload: Uint8Array): Uint8Array | null {
     const view = new DataView(
       payload.buffer,
       payload.byteOffset + offset,
-      payload.byteLength - offset,
+      payload.byteLength - offset
     );
     const messageLength = view.getUint32(1, false);
     const frameEnd = offset + 5 + messageLength;
@@ -169,9 +262,7 @@ function decodeConnectUnaryBody(payload: Uint8Array): Uint8Array | null {
   return null;
 }
 
-function normalizeCursorModels(
-  models: readonly unknown[],
-): CursorModel[] {
+function normalizeCursorModels(models: readonly unknown[]): CursorModel[] {
   if (models.length === 0) return [];
 
   const byId = new Map<string, CursorModel>();
@@ -199,7 +290,10 @@ function normalizeSingleModel(model: unknown): CursorModel | null {
   };
 }
 
-function pickDisplayName(model: CursorModelDetails, fallbackId: string): string {
+function pickDisplayName(
+  model: CursorModelDetails,
+  fallbackId: string
+): string {
   const candidates = [
     model.displayName,
     model.displayNameShort,

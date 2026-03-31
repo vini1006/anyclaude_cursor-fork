@@ -328,10 +328,13 @@ export const createAnthropicProxy = ({
                     // OpenAI provides cached tokens via cachedInputTokens or in experimental_providerMetadata
                     // Map to Anthropic's cache_read_input_tokens
                     cache_creation_input_tokens: 0, // OpenAI doesn't report cache creation separately
-                    cache_read_input_tokens: usage.cachedInputTokens ?? 
-                                            (typeof (response as any).experimental_providerMetadata?.openai?.cached_tokens === 'number'
-                                              ? (response as any).experimental_providerMetadata.openai.cached_tokens
-                                              : 0),
+                    cache_read_input_tokens:
+                      usage.cachedInputTokens ??
+                      (typeof (response as any).experimental_providerMetadata
+                        ?.openai?.cached_tokens === "number"
+                        ? (response as any).experimental_providerMetadata.openai
+                            .cached_tokens
+                        : 0),
                   },
                 })
               );

@@ -71,7 +71,7 @@ function spawnBridge(options: SpawnBridgeOptions): {
       // Stream ended
     }
 
-    const code = await proc.exited ?? 1;
+    const code = (await proc.exited) ?? 1;
     exited = true;
     exitCode = code;
     cbs.close?.(code);
@@ -79,9 +79,13 @@ function spawnBridge(options: SpawnBridgeOptions): {
 
   return {
     proc,
-    get alive() { return !exited; },
+    get alive() {
+      return !exited;
+    },
     write(data) {
-      try { proc.stdin.write(lpEncode(data)); } catch {}
+      try {
+        proc.stdin.write(lpEncode(data));
+      } catch {}
     },
     end() {
       try {
@@ -89,7 +93,9 @@ function spawnBridge(options: SpawnBridgeOptions): {
         proc.stdin.end();
       } catch {}
     },
-    onData(cb) { cbs.data = cb; },
+    onData(cb) {
+      cbs.data = cb;
+    },
     onClose(cb) {
       if (exited) {
         // Process already exited — invoke immediately so streams don't hang.
@@ -122,7 +128,7 @@ interface CursorUnaryRpcOptions {
  * Spawns an H2 bridge, sends the request, and returns the response.
  */
 export async function callCursorUnaryRpc(
-  options: CursorUnaryRpcOptions,
+  options: CursorUnaryRpcOptions
 ): Promise<{ body: Uint8Array; exitCode: number; timedOut: boolean }> {
   const bridge = spawnBridge({
     accessToken: options.accessToken,
@@ -140,13 +146,16 @@ export async function callCursorUnaryRpc(
 
   let timedOut = false;
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const timeout = timeoutMs > 0
-    ? setTimeout(() => {
-        timedOut = true;
-        debug(1, `Cursor RPC call timed out after ${timeoutMs}ms`);
-        try { bridge.proc.kill(); } catch {}
-      }, timeoutMs)
-    : undefined;
+  const timeout =
+    timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          debug(1, `Cursor RPC call timed out after ${timeoutMs}ms`);
+          try {
+            bridge.proc.kill();
+          } catch {}
+        }, timeoutMs)
+      : undefined;
 
   bridge.onData((chunk) => {
     chunks.push(Buffer.from(chunk));

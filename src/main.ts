@@ -42,92 +42,92 @@ main().catch((error) => {
 
 // Main execution function
 async function main() {
-// Check for cursor-auth command
-if (process.argv[2] === "cursor-auth") {
-  return runCursorAuth()
-  .then(()=> {
-    console.log('cursor-auth success');
-    process.exit(0);
-  })
-  .catch((error: Error) => {
-    console.error("Error:", error.message);
-    process.exit(1);
-  });  
-}
+  // Check for cursor-auth command
+  if (process.argv[2] === "cursor-auth") {
+    return runCursorAuth()
+      .then(() => {
+        console.log("cursor-auth success");
+        process.exit(0);
+      })
+      .catch((error: Error) => {
+        console.error("Error:", error.message);
+        process.exit(1);
+      });
+  }
 
-for (const [key, spec] of Object.entries(FLAGS) as Array<
-  [keyof typeof FLAGS, (typeof FLAGS)[keyof typeof FLAGS]]
->) {
-  const val = (key === "reasoningEffort" ? reasoningEffort : serviceTier) as
-    | string
-    | undefined;
-  if (val) {
-    const allowed = new Set(spec.values as readonly string[]);
-    if (!allowed.has(val as any)) {
-      console.error(`Invalid ${spec.long}. Use ${spec.values.join("|")}.`);
-      process.exit(1);
+  for (const [key, spec] of Object.entries(FLAGS) as Array<
+    [keyof typeof FLAGS, (typeof FLAGS)[keyof typeof FLAGS]]
+  >) {
+    const val = (key === "reasoningEffort" ? reasoningEffort : serviceTier) as
+      | string
+      | undefined;
+    if (val) {
+      const allowed = new Set(spec.values as readonly string[]);
+      if (!allowed.has(val as any)) {
+        console.error(`Invalid ${spec.long}. Use ${spec.values.join("|")}.`);
+        process.exit(1);
+      }
     }
   }
-}
 
-// providers are supported providers to proxy requests by name.
-// Model names are split when requested by `/`. The provider
-// name is the first part, and the rest is the model name.
-const providers: CreateAnthropicProxyOptions["providers"] = {
-  openai: createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_API_URL,
-    fetch: (async (url, init) => {
-      if (init?.body && typeof init.body === "string") {
-        const body = JSON.parse(init.body);
-        const maxTokens = body.max_tokens;
-        delete body["max_tokens"];
-        if (typeof maxTokens !== "undefined")
-          body.max_completion_tokens = maxTokens;
+  // providers are supported providers to proxy requests by name.
+  // Model names are split when requested by `/`. The provider
+  // name is the first part, and the rest is the model name.
+  const providers: CreateAnthropicProxyOptions["providers"] = {
+    openai: createOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_API_URL,
+      fetch: (async (url, init) => {
+        if (init?.body && typeof init.body === "string") {
+          const body = JSON.parse(init.body);
+          const maxTokens = body.max_tokens;
+          delete body["max_tokens"];
+          if (typeof maxTokens !== "undefined")
+            body.max_completion_tokens = maxTokens;
 
-        // Set up reasoning parameters for OpenAI
-        if (reasoningEffort) {
-          body.reasoning = {
-            effort: reasoningEffort,
-            summary: "auto", // Request reasoning summaries from OpenAI
-          };
-        } else {
-          // Always request reasoning summaries for models that support it
-          body.reasoning = { summary: "auto" };
+          // Set up reasoning parameters for OpenAI
+          if (reasoningEffort) {
+            body.reasoning = {
+              effort: reasoningEffort,
+              summary: "auto", // Request reasoning summaries from OpenAI
+            };
+          } else {
+            // Always request reasoning summaries for models that support it
+            body.reasoning = { summary: "auto" };
+          }
+
+          // Enable automatic truncation to prevent context length errors
+          body.parallel_tool_calls = true;
+
+          if (serviceTier) body.service_tier = serviceTier;
+
+          init.body = JSON.stringify(body);
         }
+        return globalThis.fetch(url, init);
+      }) as typeof fetch,
+    }),
+    azure: createAzure({
+      apiKey: process.env.AZURE_API_KEY,
+      baseURL: process.env.AZURE_API_URL,
+    }),
+    google: createGoogleGenerativeAI({
+      apiKey: process.env.GOOGLE_API_KEY,
+      baseURL: process.env.GOOGLE_API_URL,
+    }),
+    xai: createXai({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: process.env.XAI_API_URL,
+    }),
+  };
 
-        // Enable automatic truncation to prevent context length errors
-        body.parallel_tool_calls = true;
-
-        if (serviceTier) body.service_tier = serviceTier;
-
-        init.body = JSON.stringify(body);
-      }
-      return globalThis.fetch(url, init);
-    }) as typeof fetch,
-  }),
-  azure: createAzure({
-    apiKey: process.env.AZURE_API_KEY,
-    baseURL: process.env.AZURE_API_URL,
-  }),
-  google: createGoogleGenerativeAI({
-    apiKey: process.env.GOOGLE_API_KEY,
-    baseURL: process.env.GOOGLE_API_URL,
-  }),
-  xai: createXai({
-    apiKey: process.env.XAI_API_KEY,
-    baseURL: process.env.XAI_API_URL,
-  }),
-};
-
-// We exclude this by default, because the Claude Code
-// API key is not supported by Anthropic endpoints.
-if (process.env.ANTHROPIC_API_KEY) {
-  providers.anthropic = createAnthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    baseURL: process.env.ANTHROPIC_API_URL,
-  });
-}
+  // We exclude this by default, because the Claude Code
+  // API key is not supported by Anthropic endpoints.
+  if (process.env.ANTHROPIC_API_KEY) {
+    providers.anthropic = createAnthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      baseURL: process.env.ANTHROPIC_API_URL,
+    });
+  }
 
   // Initialize Cursor provider before creating proxy
   await initializeCursorProvider(providers);
@@ -174,40 +174,25 @@ if (process.env.ANTHROPIC_API_KEY) {
   }
 }
 
-
-
 // Initialize Cursor provider if cursor model is requested
-async function initializeCursorProvider(providers: CreateAnthropicProxyOptions["providers"]) {
-  const requestedModel = filteredArgs.find(
-    (arg) => arg.startsWith("--model=") || arg === "--model",
-  );
+async function initializeCursorProvider(
+  providers: CreateAnthropicProxyOptions["providers"]
+) {
+  const { url, stop } = await startCursorProxy();
+  providers.cursor = createCursorProviderWithBaseUrl(url) as any;
 
-  console.log('requestedModel', requestedModel);
+  process
+    .on("exit", () => stop())
+    .on("SIGINT", () => {
+      stop();
+      process.exit(130);
+    })
+    .on("SIGTERM", () => {
+      stop();
+      process.exit(143);
+    });
 
-  if (requestedModel) {
-    const modelValue = requestedModel.includes("=")
-      ? requestedModel.split("=")[1]
-      : filteredArgs[filteredArgs.indexOf(requestedModel) + 1];
-    
-    if (modelValue?.startsWith("cursor/")) {
-      debug(1, "Cursor model detected, starting proxy...");
-
-      const { url, stop } = await startCursorProxy();
-      providers.cursor = createCursorProviderWithBaseUrl(url) as any;
-
-      process.on("exit", () => stop());
-      process.on("SIGINT", () => {
-        stop();
-        process.exit(130);
-      });
-      process.on("SIGTERM", () => {
-        stop();
-        process.exit(143);
-      });
-
-      debug(1, `Cursor proxy started at ${url}`);
-    }
-  }
+  debug(1, `Cursor proxy started at ${url}`);
 }
 
 function parseAnyclaudeFlags(rawArgs: string[]) {

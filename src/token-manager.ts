@@ -33,11 +33,7 @@ export class TokenManager {
       const content = await fs.promises.readFile(this.storagePath, "utf8");
       const tokens = JSON.parse(content) as CursorTokens;
 
-      if (
-        !tokens.accessToken ||
-        !tokens.refreshToken ||
-        !tokens.expires
-      ) {
+      if (!tokens.accessToken || !tokens.refreshToken || !tokens.expires) {
         return null;
       }
 
@@ -82,7 +78,10 @@ export class TokenManager {
       );
     }
 
-    const data = await response.json() as { accessToken?: string; refreshToken?: string };
+    const data = (await response.json()) as {
+      accessToken?: string;
+      refreshToken?: string;
+    };
     if (!data.accessToken || !data.refreshToken) {
       throw new Error("Invalid token refresh response");
     }

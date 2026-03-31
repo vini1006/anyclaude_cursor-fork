@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { getCursorModels, clearModelCache, type CursorModel } from "./cursor-models";
+import {
+  getCursorModels,
+  clearModelCache,
+  type CursorModel,
+} from "./cursor-models";
 
 describe("getCursorModels", () => {
   beforeEach(() => {
@@ -18,7 +22,7 @@ describe("getCursorModels", () => {
 
   it("returns models with valid structure", async () => {
     const models = await getCursorModels("any-token");
-    
+
     for (const model of models) {
       expect(typeof model.id).toBe("string");
       expect(typeof model.name).toBe("string");
@@ -35,7 +39,7 @@ describe("getCursorModels", () => {
   it("caches results after first call", async () => {
     const firstCall = await getCursorModels("token-1");
     const secondCall = await getCursorModels("token-2");
-    
+
     // Should return cached results regardless of different token
     expect(firstCall).toBe(secondCall);
     expect(firstCall.length).toBe(secondCall.length);
@@ -43,33 +47,33 @@ describe("getCursorModels", () => {
 
   it("includes both reasoning and non-reasoning models in fallback", async () => {
     const models = await getCursorModels("invalid-token");
-    
-    const reasoningModels = models.filter(m => m.reasoning);
-    const nonReasoningModels = models.filter(m => !m.reasoning);
-    
+
+    const reasoningModels = models.filter((m) => m.reasoning);
+    const nonReasoningModels = models.filter((m) => !m.reasoning);
+
     expect(reasoningModels.length).toBeGreaterThan(0);
     expect(nonReasoningModels.length).toBeGreaterThan(0);
   });
 
   it("includes expected fallback model families", async () => {
     const models = await getCursorModels("invalid-token");
-    const modelIds = models.map(m => m.id);
-    
+    const modelIds = models.map((m) => m.id);
+
     // Check for composer models
-    expect(modelIds.some(id => id.includes("composer"))).toBe(true);
-    
+    expect(modelIds.some((id) => id.includes("composer"))).toBe(true);
+
     // Check for claude models
-    expect(modelIds.some(id => id.includes("claude"))).toBe(true);
-    
+    expect(modelIds.some((id) => id.includes("claude"))).toBe(true);
+
     // Check for gpt models
-    expect(modelIds.some(id => id.includes("gpt"))).toBe(true);
+    expect(modelIds.some((id) => id.includes("gpt"))).toBe(true);
   });
 
   it("sorts models by id", async () => {
     const models = await getCursorModels("invalid-token");
-    const ids = models.map(m => m.id);
+    const ids = models.map((m) => m.id);
     const sortedIds = [...ids].sort((a, b) => a.localeCompare(b));
-    
+
     expect(ids).toEqual(sortedIds);
   });
 });
@@ -83,7 +87,7 @@ describe("CursorModel type", () => {
       contextWindow: 100000,
       maxTokens: 50000,
     };
-    
+
     expect(model.id).toBe("test-model");
     expect(model.name).toBe("Test Model");
     expect(model.reasoning).toBe(true);

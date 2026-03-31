@@ -56,7 +56,9 @@ process.stdin.on("end", () => {
 });
 
 function waitForData() {
-  return new Promise((resolve) => { stdinResolve = resolve; });
+  return new Promise((resolve) => {
+    stdinResolve = resolve;
+  });
 }
 
 async function readExact(n) {

@@ -1,5 +1,13 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { generatePKCE, buildLoginUrl, parseTokenExpiry, pollForTokens, setSleepImplementation, clearSleepImplementation, type PKCEParams } from "./cursor-auth";
+import {
+  generatePKCE,
+  buildLoginUrl,
+  parseTokenExpiry,
+  pollForTokens,
+  setSleepImplementation,
+  clearSleepImplementation,
+  type PKCEParams,
+} from "./cursor-auth";
 
 describe("generatePKCE", () => {
   test("generates valid PKCE parameters", async () => {
@@ -56,7 +64,9 @@ describe("buildLoginUrl", () => {
     };
 
     const url = buildLoginUrl(params);
-    expect(url).toContain("challenge=test%2Bchallenge%2Fwith%3Dspecial%26chars");
+    expect(url).toContain(
+      "challenge=test%2Bchallenge%2Fwith%3Dspecial%26chars"
+    );
   });
 });
 
@@ -64,8 +74,12 @@ describe("parseTokenExpiry", () => {
   test("parses valid JWT with exp claim", () => {
     // Create a valid JWT with exp claim (exp is in seconds)
     const futureExp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-    const payload = Buffer.from(JSON.stringify({ exp: futureExp, sub: "user123" })).toString("base64url");
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" })
+    ).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({ exp: futureExp, sub: "user123" })
+    ).toString("base64url");
     const signature = "fake-signature";
     const token = `${header}.${payload}.${signature}`;
 
@@ -86,8 +100,12 @@ describe("parseTokenExpiry", () => {
   });
 
   test("returns default expiry for JWT without exp claim", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-    const payload = Buffer.from(JSON.stringify({ sub: "user123", name: "Test" })).toString("base64url");
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" })
+    ).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({ sub: "user123", name: "Test" })
+    ).toString("base64url");
     const signature = "fake-signature";
     const token = `${header}.${payload}.${signature}`;
 
@@ -110,7 +128,9 @@ describe("parseTokenExpiry", () => {
   });
 
   test("returns default expiry for non-JSON payload", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString("base64url");
+    const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString(
+      "base64url"
+    );
     const payload = Buffer.from("not-json-string").toString("base64url");
     const signature = "fake";
     const token = `${header}.${payload}.${signature}`;
@@ -146,10 +166,11 @@ describe("pollForTokens", () => {
       refreshToken: "mock-refresh-token",
     };
 
-    fetchMock = mock(((url: string) => Promise.resolve({
-      status: 200,
-      json: () => Promise.resolve(mockTokens),
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock(((url: string) =>
+      Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve(mockTokens),
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     const result = await pollForTokens("test-uuid", "test-verifier");
@@ -188,10 +209,11 @@ describe("pollForTokens", () => {
   });
 
   test("times out after max attempts with 404 responses", async () => {
-    fetchMock = mock((() => Promise.resolve({
-      status: 404,
-      statusText: "Not Found",
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock((() =>
+      Promise.resolve({
+        status: 404,
+        statusText: "Not Found",
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
@@ -200,10 +222,11 @@ describe("pollForTokens", () => {
   });
 
   test("handles non-200/404 error responses", async () => {
-    fetchMock = mock((() => Promise.resolve({
-      status: 500,
-      statusText: "Internal Server Error",
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock((() =>
+      Promise.resolve({
+        status: 500,
+        statusText: "Internal Server Error",
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
@@ -213,8 +236,7 @@ describe("pollForTokens", () => {
 
   test("handles fetch network errors", async () => {
     fetchMock = mock((() =>
-      Promise.reject(new Error("Network error"))
-    ) as unknown as typeof fetch);
+      Promise.reject(new Error("Network error"))) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     // Network errors cause immediate throw on first attempt
@@ -224,10 +246,11 @@ describe("pollForTokens", () => {
   });
 
   test("handles incomplete token response (missing accessToken)", async () => {
-    fetchMock = mock((() => Promise.resolve({
-      status: 200,
-      json: () => Promise.resolve({ refreshToken: "only-refresh" }),
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock((() =>
+      Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve({ refreshToken: "only-refresh" }),
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
@@ -236,10 +259,11 @@ describe("pollForTokens", () => {
   });
 
   test("handles incomplete token response (missing refreshToken)", async () => {
-    fetchMock = mock((() => Promise.resolve({
-      status: 200,
-      json: () => Promise.resolve({ accessToken: "only-access" }),
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock((() =>
+      Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve({ accessToken: "only-access" }),
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
@@ -281,10 +305,11 @@ describe("CURSOR_API_URL environment variable", () => {
       refreshToken: "mock-refresh-token",
     };
 
-    fetchMock = mock((() => Promise.resolve({
-      status: 200,
-      json: () => Promise.resolve(mockTokens),
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock((() =>
+      Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve(mockTokens),
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await pollForTokens("test-uuid", "test-verifier");
@@ -301,10 +326,11 @@ describe("CURSOR_API_URL environment variable", () => {
       refreshToken: "mock-refresh-token",
     };
 
-    fetchMock = mock((() => Promise.resolve({
-      status: 200,
-      json: () => Promise.resolve(mockTokens),
-    } as Response)) as unknown as typeof fetch);
+    fetchMock = mock((() =>
+      Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve(mockTokens),
+      } as Response)) as unknown as typeof fetch);
     global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await pollForTokens("test-uuid", "test-verifier");

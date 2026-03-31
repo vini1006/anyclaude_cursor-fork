@@ -1,5 +1,9 @@
 import open from "open";
-import { TokenManager, type CursorTokens, getCursorStoragePath } from "./token-manager";
+import {
+  TokenManager,
+  type CursorTokens,
+  getCursorStoragePath,
+} from "./token-manager";
 import { debug, queueErrorMessage } from "./debug";
 import { generatePKCE, type PKCEParams } from "./cursor/cursor-pkce";
 
@@ -44,7 +48,10 @@ export async function pollForTokens(
       );
 
       if (response.status === 200) {
-        const data = await response.json() as { accessToken?: string; refreshToken?: string };
+        const data = (await response.json()) as {
+          accessToken?: string;
+          refreshToken?: string;
+        };
         if (data.accessToken && data.refreshToken) {
           debug(1, "Cursor authentication successful");
           const expiry = parseTokenExpiry(data.accessToken);
@@ -101,7 +108,9 @@ export function parseTokenExpiry(token: string): number {
 // Configurable sleep function for testing
 let sleepImpl: ((ms: number) => Promise<void>) | undefined;
 
-export function setSleepImplementation(impl: (ms: number) => Promise<void>): void {
+export function setSleepImplementation(
+  impl: (ms: number) => Promise<void>
+): void {
   sleepImpl = impl;
 }
 
