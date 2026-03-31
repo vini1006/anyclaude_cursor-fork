@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { getCursorStoragePath, TokenManager, type CursorTokens } from "./token-manager";
+import { getCursorStoragePath, TokenManager } from "./token-manager";
 import * as os from "os";
 import * as path from "path";
 
@@ -31,30 +31,30 @@ describe("getCursorStoragePath", () => {
 describe("TokenManager", () => {
   test("needsRefresh returns true when token is expired", () => {
     const manager = new TokenManager();
-    const expiredTokens: CursorTokens = {
+    const expiredTokens = {
       accessToken: "test_access",
       refreshToken: "test_refresh",
-      expires: Date.now() - 1000, // 1 second ago
+      expires: Date.now() - 1000,
     };
     expect(manager.needsRefresh(expiredTokens)).toBe(true);
   });
 
   test("needsRefresh returns false when token is valid", () => {
     const manager = new TokenManager();
-    const validTokens: CursorTokens = {
+    const validTokens = {
       accessToken: "test_access",
       refreshToken: "test_refresh",
-      expires: Date.now() + 60 * 60 * 1000, // 1 hour from now
+      expires: Date.now() + 60 * 60 * 1000,
     };
     expect(manager.needsRefresh(validTokens)).toBe(false);
   });
 
   test("needsRefresh returns true when token is within safety margin", () => {
     const manager = new TokenManager();
-    const marginTokens: CursorTokens = {
+    const marginTokens = {
       accessToken: "test_access",
       refreshToken: "test_refresh",
-      expires: Date.now() + 2 * 60 * 1000, // 2 minutes from now
+      expires: Date.now() + 2 * 60 * 1000,
     };
     expect(manager.needsRefresh(marginTokens)).toBe(true);
   });

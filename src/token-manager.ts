@@ -5,22 +5,15 @@ import * as os from "os";
 export interface CursorTokens {
   accessToken: string;
   refreshToken: string;
-  expires: number; // Timestamp in milliseconds
+  expires: number;
 }
 
-/**
- * Get the storage path for Cursor auth tokens.
- * Respects XDG_DATA_HOME env var, falls back to ~/.local/share
- */
 export function getCursorStoragePath(): string {
   const dataHome = process.env.XDG_DATA_HOME;
   const baseDir = dataHome || path.join(os.homedir(), ".local", "share");
   return path.join(baseDir, "anyclaude", "cursor-auth.json");
 }
 
-/**
- * Ensure the directory for token storage exists
- */
 function ensureStorageDirectory(storagePath: string): void {
   const dir = path.dirname(storagePath);
   if (!fs.existsSync(dir)) {
@@ -28,15 +21,9 @@ function ensureStorageDirectory(storagePath: string): void {
   }
 }
 
-/**
- * TokenManager handles Cursor authentication token storage and refresh
- */
 export class TokenManager {
   constructor(private storagePath: string = getCursorStoragePath()) {}
 
-  /**
-   * Load tokens from storage, returns null if not found
-   */
   async loadTokens(): Promise<CursorTokens | null> {
     try {
       if (!fs.existsSync(this.storagePath)) {
@@ -46,7 +33,6 @@ export class TokenManager {
       const content = await fs.promises.readFile(this.storagePath, "utf8");
       const tokens = JSON.parse(content) as CursorTokens;
 
-      // Validate required fields
       if (
         !tokens.accessToken ||
         !tokens.refreshToken ||
@@ -57,36 +43,26 @@ export class TokenManager {
 
       return tokens;
     } catch (error) {
-      // File corrupted or unreadable
       return null;
     }
   }
 
-  /**
-   * Save tokens to storage with secure permissions (600)
-   */
   async saveTokens(tokens: CursorTokens): Promise<void> {
     ensureStorageDirectory(this.storagePath);
 
     const content = JSON.stringify(tokens, null, 2);
     await fs.promises.writeFile(this.storagePath, content, {
       encoding: "utf8",
-      mode: 0o600, // Owner read/write only
+      mode: 0o600,
     });
   }
 
-  /**
-   * Check if tokens need refresh (within 5-minute safety margin)
-   */
   needsRefresh(tokens: CursorTokens): boolean {
     const now = Date.now();
-    const safetyMargin = 5 * 60 * 1000; // 5 minutes
+    const safetyMargin = 5 * 60 * 1000;
     return now >= tokens.expires - safetyMargin;
   }
 
-  /**
-   * Refresh expired tokens using the refresh token
-   */
   async refreshTokens(refreshToken: string): Promise<CursorTokens> {
     const apiUrl = process.env.CURSOR_API_URL || "https://api2.cursor.sh";
     const refreshUrl = `${apiUrl}/auth/exchange_user_api_key`;
@@ -111,7 +87,6 @@ export class TokenManager {
       throw new Error("Invalid token refresh response");
     }
 
-    // Parse expiry from JWT or use default (1 hour)
     const expiry = this.parseTokenExpiry(data.accessToken);
 
     return {
@@ -121,10 +96,6 @@ export class TokenManager {
     };
   }
 
-  /**
-   * Parse expiry timestamp from JWT token
-   * Falls back to 1 hour from now if parsing fails
-   */
   private parseTokenExpiry(token: string): number {
     try {
       const parts = token.split(".");
@@ -132,26 +103,20 @@ export class TokenManager {
         throw new Error("Invalid JWT format");
       }
 
-      // Base64url decode the payload
       const payload = parts[1];
       const decoded = Buffer.from(payload, "base64url").toString("utf8");
       const payloadObj = JSON.parse(decoded);
 
       if (payloadObj.exp) {
-        // Convert from seconds to milliseconds, subtract 5-minute safety margin
         return payloadObj.exp * 1000 - 5 * 60 * 1000;
       }
     } catch (error) {
-      // Ignore parsing errors, use default
+      // Ignore parsing errors
     }
 
-    // Default: 1 hour from now, minus 5-minute safety margin
     return Date.now() + 60 * 60 * 1000 - 5 * 60 * 1000;
   }
 
-  /**
-   * Get valid access token, refreshing if necessary
-   */
   async getValidAccessToken(): Promise<string> {
     const tokens = await this.loadTokens();
 
