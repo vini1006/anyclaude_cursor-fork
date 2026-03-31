@@ -11,10 +11,26 @@ export interface CursorCredentials {
   expires: number;       // Expiry timestamp (ms)
 }
 
+export interface CursorTokens {
+  accessToken: string;
+  refreshToken: string;
+  expires: number;
+}
+
 export interface TokenFile {
   accessToken: string;
   refreshToken: string;
   expiresAt?: number;
+}
+
+export function getCursorStoragePath(): string {
+  return join(
+    process.env.HOME || process.env.USERPROFILE || "~",
+    ".local",
+    "share",
+    "opencode",
+    "auth.json"
+  );
 }
 
 export class TokenManager {
@@ -58,7 +74,7 @@ export class TokenManager {
         expiresAt: data.expiresAt,
       };
     } catch (error) {
-      debug(1, `Failed to load tokens: ${error.message}`);
+      debug(1, `Failed to load tokens: ${(error as Error).message}`);
       return null;
     }
   }
@@ -75,7 +91,7 @@ export class TokenManager {
       });
       debug(2, `Tokens saved to ${this.tokenPath}`);
     } catch (error) {
-      debug(1, `Failed to save tokens: ${error.message}`);
+      debug(1, `Failed to save tokens: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -109,7 +125,7 @@ export class TokenManager {
       throw new Error(`Token refresh failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { accessToken: string; refreshToken: string };
     debug(2, "Tokens refreshed successfully");
 
     return {
@@ -131,7 +147,7 @@ export class TokenManager {
         return 0;
       }
 
-      const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf-8"));
+      const payload = JSON.parse(Buffer.from(parts[1]!, "base64").toString("utf-8"));
       if (payload.exp) {
         const expiry = payload.exp * 1000 - SAFETY_MARGIN_MS;
         debug(2, `Token expires at ${new Date(expiry).toISOString()}`);
@@ -140,7 +156,7 @@ export class TokenManager {
       debug(2, "No exp claim in token");
       return 0;
     } catch (error) {
-      debug(2, `Failed to parse token expiry: ${error.message}`);
+      debug(2, `Failed to parse token expiry: ${(error as Error).message}`);
       // Ignore parsing errors, use default
       return 0;
     }
@@ -177,7 +193,7 @@ export class TokenManager {
         await this.saveTokens(newTokens);
         return refreshed.accessToken;
       } catch (error) {
-        debug(1, `Failed to refresh token: ${error.message}`);
+        debug(1, `Failed to refresh token: ${(error as Error).message}`);
         return null;
       }
     }

@@ -17,21 +17,21 @@ export function createCursorProvider(): {
       const openaiProvider = createOpenAI({
         apiKey: "cursor-proxy",
         baseURL: "http://localhost:0/v1",
-        fetch: async (url, init) => {
+        fetch: (async (url: string | URL | Request, init?: RequestInit) => {
           try {
             const accessToken = await tokenManager.getValidAccessToken();
 
-            const headers = new Headers((init?.headers as HeadersInit) || {});
+            const headers = new Headers((init?.headers as Record<string, string>) || {});
             headers.set("Authorization", `Bearer ${accessToken}`);
 
             debug(2, `Cursor API request to ${url}`);
 
             return globalThis.fetch(url, { ...init, headers });
           } catch (error) {
-            debug(1, `Cursor provider error: ${error.message}`);
+            debug(1, `Cursor provider error: ${(error as Error).message}`);
             throw error;
           }
-        },
+        }) as any,
       });
 
       return openaiProvider.languageModel(cursorModelId);
@@ -53,14 +53,14 @@ export function createCursorProviderWithBaseUrl(baseUrl: string) {
       const openaiProvider = createOpenAI({
         apiKey: "cursor-proxy",
         baseURL: `${baseUrl}/v1`,
-        fetch: async (url, init) => {
+        fetch: (async (url: string | URL | Request, init?: RequestInit) => {
           const accessToken = await tokenManager.getValidAccessToken();
 
-          const headers = new Headers((init?.headers as HeadersInit) || {});
+          const headers = new Headers((init?.headers as Record<string, string>) || {});
           headers.set("Authorization", `Bearer ${accessToken}`);
 
           return globalThis.fetch(url, { ...init, headers });
-        },
+        }) as any,
       });
 
       return openaiProvider.languageModel(cursorModelId);

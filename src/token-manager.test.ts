@@ -177,7 +177,7 @@ describe("TokenManager", () => {
           accessToken: "new_access_token",
           refreshToken: "new_refresh_token",
         }),
-      } as Response));
+      })) as any;
 
       const manager = new TokenManager();
       const result = await manager.refreshTokens("valid_refresh_token");
@@ -191,7 +191,7 @@ describe("TokenManager", () => {
         ok: false,
         status: 401,
         text: async () => "Unauthorized",
-      } as Response));
+      })) as any;
 
       const manager = new TokenManager();
       await expect(manager.refreshTokens("invalid_token")).rejects.toThrow("Token refresh failed: 401");
@@ -212,8 +212,8 @@ describe("TokenManager", () => {
             accessToken: "new_access_token",
             refreshToken: "new_refresh_token",
           }),
-        } as Response;
-      });
+        } as any;
+      }) as any;
 
       const manager = new TokenManager();
       await manager.refreshTokens("valid_token");
@@ -345,7 +345,7 @@ describe("TokenManager", () => {
           accessToken: "new_token",
           refreshToken: "new_refresh",
         }),
-      } as Response));
+      })) as any;
 
       const manager = new TokenManager(tokenPath);
       const result = await manager.getValidAccessToken();
@@ -374,7 +374,7 @@ describe("TokenManager", () => {
           accessToken: "new_token",
           refreshToken: "new_refresh",
         }),
-      } as Response));
+      })) as any;
 
       const manager = new TokenManager(tokenPath);
       const result = await manager.getValidAccessToken();
@@ -400,7 +400,7 @@ describe("TokenManager", () => {
           accessToken: "refreshed_token",
           refreshToken: "new_refresh",
         }),
-      } as Response));
+      })) as any;
 
       const manager = new TokenManager(tokenPath);
       const result = await manager.getValidAccessToken(true);
@@ -423,7 +423,7 @@ describe("TokenManager", () => {
         ok: false,
         status: 401,
         text: async () => "Unauthorized",
-      } as Response));
+      })) as any;
 
       const manager = new TokenManager(tokenPath);
       const result = await manager.getValidAccessToken();

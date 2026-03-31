@@ -87,7 +87,7 @@ const { reasoningEffort, serviceTier, filteredArgs, helpRequested } =
 // Check for cursor-auth command
 if (process.argv[2] === "cursor-auth") {
   import("./cursor-auth").then(({ runCursorAuth }) => {
-    runCursorAuth().catch((error) => {
+    runCursorAuth().catch((error: Error) => {
       console.error("Error:", error.message);
       process.exit(1);
     });
@@ -162,7 +162,7 @@ const providers: CreateAnthropicProxyOptions["providers"] = {
     languageModel: (modelId: string) => {
       throw new Error("Cursor provider not initialized");
     },
-  },
+  } as any,
 };
 
 // We exclude this by default, because the Claude Code
@@ -175,76 +175,89 @@ if (process.env.ANTHROPIC_API_KEY) {
 }
 
 // Initialize Cursor provider if cursor model is requested
-const requestedModel = filteredArgs.find(
-  (arg) => arg.startsWith("--model=") || arg === "--model",
-);
-if (requestedModel) {
-  const modelValue = requestedModel.includes("=")
-    ? requestedModel.split("=")[1]
-    : filteredArgs[filteredArgs.indexOf(requestedModel) + 1];
+async function initializeCursorProvider() {
+  const requestedModel = filteredArgs.find(
+    (arg) => arg.startsWith("--model=") || arg === "--model",
+  );
+  if (requestedModel) {
+    const modelValue = requestedModel.includes("=")
+      ? requestedModel.split("=")[1]
+      : filteredArgs[filteredArgs.indexOf(requestedModel) + 1];
 
-  if (modelValue?.startsWith("cursor/")) {
-    debug(1, "Cursor model detected, starting proxy...");
+    if (modelValue?.startsWith("cursor/")) {
+      debug(1, "Cursor model detected, starting proxy...");
 
-    const { startCursorProxy } = await import("./cursor-proxy");
-    const { createCursorProviderWithBaseUrl } = await import(
-      "./cursor-provider"
-    );
+      const { startCursorProxy } = await import("./cursor-proxy");
+      const { createCursorProviderWithBaseUrl } = await import(
+        "./cursor-provider"
+      );
 
-    const { url, stop } = await startCursorProxy();
-    providers.cursor = createCursorProviderWithBaseUrl(url);
+      const { url, stop } = await startCursorProxy();
+      providers.cursor = createCursorProviderWithBaseUrl(url) as any;
 
-    process.on("exit", () => stop());
-    process.on("SIGINT", () => {
-      stop();
-      process.exit(130);
-    });
-    process.on("SIGTERM", () => {
-      stop();
-      process.exit(143);
-    });
+      process.on("exit", () => stop());
+      process.on("SIGINT", () => {
+        stop();
+        process.exit(130);
+      });
+      process.on("SIGTERM", () => {
+        stop();
+        process.exit(143);
+      });
 
-    debug(1, `Cursor proxy started at ${url}`);
+      debug(1, `Cursor proxy started at ${url}`);
+    }
   }
 }
 
-const proxyURL = createAnthropicProxy({
-  providers,
-});
+// Main execution function
+async function main() {
+  // Initialize Cursor provider before creating proxy
+  await initializeCursorProvider();
 
-const params = [
-  `proxy=${proxyURL}`,
-  ...(
-    Object.entries({ reasoningEffort, serviceTier }) as Array<
-      [keyof typeof FLAGS, string | undefined]
-    >
-  ).map(([k, v]) => (v ? `${FLAGS[k].long}=${v}` : undefined)),
-]
-  .filter(Boolean)
-  .join(" ");
-console.log(`[anyclaude] ${params}`);
-
-if (process.env.PROXY_ONLY === "true") {
-  console.log("Proxy only mode: " + proxyURL);
-} else {
-  const claudeArgs = filteredArgs;
-  const proc = spawn("claude", claudeArgs, {
-    env: {
-      ...process.env,
-      ANTHROPIC_BASE_URL: proxyURL,
-    },
-    stdio: "inherit",
+  const proxyURL = createAnthropicProxy({
+    providers,
   });
-  proc.on("exit", (code) => {
-    if (helpRequested) {
-      console.log("\nanyclaude flags:");
-      console.log("  --model <provider>/<model>      e.g. openai/gpt-5");
-      for (const spec of Object.values(FLAGS)) {
-        const vals = spec.values.join("|");
-        console.log(`  --${spec.long}, -${spec.short} <${vals}>`);
+
+  const params = [
+    `proxy=${proxyURL}`,
+    ...(
+      Object.entries({ reasoningEffort, serviceTier }) as Array<
+        [keyof typeof FLAGS, string | undefined]
+      >
+    ).map(([k, v]) => (v ? `${FLAGS[k].long}=${v}` : undefined)),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  console.log(`[anyclaude] ${params}`);
+
+  if (process.env.PROXY_ONLY === "true") {
+    console.log("Proxy only mode: " + proxyURL);
+  } else {
+    const claudeArgs = filteredArgs;
+    const proc = spawn("claude", claudeArgs, {
+      env: {
+        ...process.env,
+        ANTHROPIC_BASE_URL: proxyURL,
+      },
+      stdio: "inherit",
+    });
+    proc.on("exit", (code) => {
+      if (helpRequested) {
+        console.log("\nanyclaude flags:");
+        console.log("  --model <provider>/<model>      e.g. openai/gpt-5");
+        for (const spec of Object.values(FLAGS)) {
+          const vals = spec.values.join("|");
+          console.log(`  --${spec.long}, -${spec.short} <${vals}>`);
+        }
       }
-    }
 
-    process.exit(code);
-  });
+      process.exit(code);
+    });
+  }
 }
+
+main().catch((error) => {
+  console.error("Error:", error.message);
+  process.exit(1);
+});

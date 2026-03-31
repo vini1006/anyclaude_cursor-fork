@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { findAvailablePort } from "./cursor-proxy";
+import { findAvailablePort, startCursorProxy } from "./cursor-proxy";
 
 describe("findAvailablePort", () => {
   test("finds an available port", async () => {
