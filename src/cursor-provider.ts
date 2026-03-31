@@ -5,7 +5,7 @@ import { debug } from "./debug";
 export function createCursorProvider(): {
   languageModel: (
     modelId: string,
-  ) => ReturnType<OpenAIProvider["languageModel"]>;
+  ) => ReturnType<OpenAIProvider["chat"]>;
 } {
   const tokenManager = new TokenManager();
 
@@ -34,7 +34,9 @@ export function createCursorProvider(): {
         }) as any,
       });
 
-      return openaiProvider.languageModel(cursorModelId);
+      // @ai-sdk/openai v2: languageModel() defaults to Responses API (/v1/responses).
+      // Cursor proxy only implements Chat Completions (/v1/chat/completions).
+      return openaiProvider.chat(cursorModelId);
     },
   };
 }
@@ -63,7 +65,7 @@ export function createCursorProviderWithBaseUrl(baseUrl: string) {
         }) as any,
       });
 
-      return openaiProvider.languageModel(cursorModelId);
+      return openaiProvider.chat(cursorModelId);
     },
   };
 }

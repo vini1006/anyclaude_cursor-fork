@@ -1,4 +1,5 @@
 import { startCursorProxyInternal, stopCursorProxyInternal } from "./cursor/cursor-proxy-internal";
+import { getCursorModels } from "./cursor/cursor-models";
 import { TokenManager } from "./token-manager";
 import { debug } from "./debug";
 
@@ -19,7 +20,12 @@ export async function startCursorProxy(): Promise<{
     return await tokenManager.getValidAccessToken();
   };
 
-  const port = await startCursorProxyInternal(getAccessToken, []);
+  const token = await getAccessToken();
+  const cursorModels = await getCursorModels(token);
+  const modelRows = cursorModels.map((m) => ({ id: m.id, name: m.name }));  
+  debug(1, `Cursor proxy model list: ${modelRows.length} models`);
+
+  const port = await startCursorProxyInternal(getAccessToken, modelRows);
   proxyPort = port;
 
   debug(1, `Internal Cursor proxy started on port ${port}`);

@@ -1,5 +1,3 @@
-import * as os from "os";
-import * as path from "path";
 import open from "open";
 import { TokenManager, type CursorTokens, getCursorStoragePath } from "./token-manager";
 import { debug, queueErrorMessage } from "./debug";

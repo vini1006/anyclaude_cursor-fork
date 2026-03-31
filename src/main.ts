@@ -13,6 +13,10 @@ import {
 import { debug } from "./debug";
 import yargsParser from "yargs-parser";
 
+import { runCursorAuth } from "./cursor-auth";
+import { startCursorProxy } from "./cursor-proxy";
+import { createCursorProviderWithBaseUrl } from "./cursor-provider";
+
 const FLAGS = {
   reasoningEffort: {
     long: "reasoning-effort",
@@ -26,73 +30,29 @@ const FLAGS = {
   },
 } as const;
 
-function parseAnyclaudeFlags(rawArgs: string[]) {
-  const parsed = yargsParser(rawArgs, {
-    configuration: {
-      "unknown-options-as-args": false,
-      "halt-at-non-option": false,
-      "camel-case-expansion": false,
-      "dot-notation": false,
-    },
-  });
-  const reasoningEffort = (parsed[FLAGS.reasoningEffort.long] ??
-    parsed[FLAGS.reasoningEffort.short]) as string | undefined;
-  const serviceTier = (parsed[FLAGS.serviceTier.long] ??
-    parsed[FLAGS.serviceTier.short]) as string | undefined;
-  const specs = Object.values(FLAGS);
-  const filteredArgs: string[] = [];
-  let helpRequested = false;
-  let i = 0;
-  let passthrough = false;
-  while (i < rawArgs.length) {
-    const arg = rawArgs[i]!;
-    if (passthrough) {
-      filteredArgs.push(arg);
-      i++;
-      continue;
-    }
-    if (arg === "--") {
-      passthrough = true;
-      filteredArgs.push(arg);
-      i++;
-      continue;
-    }
-    if (arg === "-h" || arg === "--help") helpRequested = true;
-    let matched = false;
-    for (const spec of specs) {
-      const long = `--${spec.long}`;
-      const short = `-${spec.short}`;
-      if (arg === long || arg === short) {
-        i += 2;
-        matched = true;
-        break;
-      }
-      if (arg.startsWith(long + "=") || arg.startsWith(short + "=")) {
-        i += 1;
-        matched = true;
-        break;
-      }
-    }
-    if (matched) continue;
-    filteredArgs.push(arg);
-    i++;
-  }
-  return { reasoningEffort, serviceTier, filteredArgs, helpRequested };
-}
-
 const rawArgs = process.argv.slice(2);
+
 const { reasoningEffort, serviceTier, filteredArgs, helpRequested } =
   parseAnyclaudeFlags(rawArgs);
 
+main().catch((error) => {
+  console.error("Error:", error.message);
+  process.exit(1);
+});
+
+// Main execution function
+async function main() {
 // Check for cursor-auth command
 if (process.argv[2] === "cursor-auth") {
-  import("./cursor-auth").then(({ runCursorAuth }) => {
-    runCursorAuth().catch((error: Error) => {
-      console.error("Error:", error.message);
-      process.exit(1);
-    });
-  });
-  process.exit(0);
+  return runCursorAuth()
+  .then(()=> {
+    console.log('cursor-auth success');
+    process.exit(0);
+  })
+  .catch((error: Error) => {
+    console.error("Error:", error.message);
+    process.exit(1);
+  });  
 }
 
 for (const [key, spec] of Object.entries(FLAGS) as Array<
@@ -169,46 +129,8 @@ if (process.env.ANTHROPIC_API_KEY) {
   });
 }
 
-// Initialize Cursor provider if cursor model is requested
-async function initializeCursorProvider() {
-  const requestedModel = filteredArgs.find(
-    (arg) => arg.startsWith("--model=") || arg === "--model",
-  );
-  if (requestedModel) {
-    const modelValue = requestedModel.includes("=")
-      ? requestedModel.split("=")[1]
-      : filteredArgs[filteredArgs.indexOf(requestedModel) + 1];
-
-    if (modelValue?.startsWith("cursor/")) {
-      debug(1, "Cursor model detected, starting proxy...");
-
-      const { startCursorProxy } = await import("./cursor-proxy");
-      const { createCursorProviderWithBaseUrl } = await import(
-        "./cursor-provider"
-      );
-
-      const { url, stop } = await startCursorProxy();
-      providers.cursor = createCursorProviderWithBaseUrl(url) as any;
-
-      process.on("exit", () => stop());
-      process.on("SIGINT", () => {
-        stop();
-        process.exit(130);
-      });
-      process.on("SIGTERM", () => {
-        stop();
-        process.exit(143);
-      });
-
-      debug(1, `Cursor proxy started at ${url}`);
-    }
-  }
-}
-
-// Main execution function
-async function main() {
   // Initialize Cursor provider before creating proxy
-  await initializeCursorProvider();
+  await initializeCursorProvider(providers);
 
   const proxyURL = createAnthropicProxy({
     providers,
@@ -252,7 +174,92 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("Error:", error.message);
-  process.exit(1);
-});
+
+
+// Initialize Cursor provider if cursor model is requested
+async function initializeCursorProvider(providers: CreateAnthropicProxyOptions["providers"]) {
+  const requestedModel = filteredArgs.find(
+    (arg) => arg.startsWith("--model=") || arg === "--model",
+  );
+
+  console.log('requestedModel', requestedModel);
+
+  if (requestedModel) {
+    const modelValue = requestedModel.includes("=")
+      ? requestedModel.split("=")[1]
+      : filteredArgs[filteredArgs.indexOf(requestedModel) + 1];
+    
+    if (modelValue?.startsWith("cursor/")) {
+      debug(1, "Cursor model detected, starting proxy...");
+
+      const { url, stop } = await startCursorProxy();
+      providers.cursor = createCursorProviderWithBaseUrl(url) as any;
+
+      process.on("exit", () => stop());
+      process.on("SIGINT", () => {
+        stop();
+        process.exit(130);
+      });
+      process.on("SIGTERM", () => {
+        stop();
+        process.exit(143);
+      });
+
+      debug(1, `Cursor proxy started at ${url}`);
+    }
+  }
+}
+
+function parseAnyclaudeFlags(rawArgs: string[]) {
+  const parsed = yargsParser(rawArgs, {
+    configuration: {
+      "unknown-options-as-args": false,
+      "halt-at-non-option": false,
+      "camel-case-expansion": false,
+      "dot-notation": false,
+    },
+  });
+  const reasoningEffort = (parsed[FLAGS.reasoningEffort.long] ??
+    parsed[FLAGS.reasoningEffort.short]) as string | undefined;
+  const serviceTier = (parsed[FLAGS.serviceTier.long] ??
+    parsed[FLAGS.serviceTier.short]) as string | undefined;
+  const specs = Object.values(FLAGS);
+  const filteredArgs: string[] = [];
+  let helpRequested = false;
+  let i = 0;
+  let passthrough = false;
+  while (i < rawArgs.length) {
+    const arg = rawArgs[i]!;
+    if (passthrough) {
+      filteredArgs.push(arg);
+      i++;
+      continue;
+    }
+    if (arg === "--") {
+      passthrough = true;
+      filteredArgs.push(arg);
+      i++;
+      continue;
+    }
+    if (arg === "-h" || arg === "--help") helpRequested = true;
+    let matched = false;
+    for (const spec of specs) {
+      const long = `--${spec.long}`;
+      const short = `-${spec.short}`;
+      if (arg === long || arg === short) {
+        i += 2;
+        matched = true;
+        break;
+      }
+      if (arg.startsWith(long + "=") || arg.startsWith(short + "=")) {
+        i += 1;
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+    filteredArgs.push(arg);
+    i++;
+  }
+  return { reasoningEffort, serviceTier, filteredArgs, helpRequested };
+}

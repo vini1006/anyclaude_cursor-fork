@@ -379,8 +379,9 @@ export async function startCursorProxyInternal(
     idleTimeout: 255, // max — Cursor responses can take 30s+
     async fetch(req) {
       const url = new URL(req.url);
+      const pathname = url.pathname.replace(/\/+$/, "") || "/";
 
-      if (req.method === "GET" && url.pathname === "/v1/models") {
+      if (req.method === "GET" && pathname === "/v1/models") {
         return new Response(
           JSON.stringify({
             object: "list",
@@ -390,7 +391,7 @@ export async function startCursorProxyInternal(
         );
       }
 
-      if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+      if (req.method === "POST" && pathname === "/v1/chat/completions") {
         try {
           const body = (await req.json()) as ChatCompletionRequest;
           if (!proxyAccessTokenProvider) {
@@ -732,12 +733,26 @@ function buildCursorRequest(
 
 function parseConnectEndStream(data: Uint8Array): Error | null {
   try {
-    const payload = JSON.parse(new TextDecoder().decode(data));
-    const error = payload?.error;
-    if (error) {
-      const code = error.code ?? "unknown";
-      const message = error.message ?? "Unknown error";
+    const payload = JSON.parse(new TextDecoder().decode(data)) as Record<
+      string,
+      unknown
+    >;
+    const nested = payload?.error;
+    if (nested && typeof nested === "object" && nested !== null) {
+      const errObj = nested as { code?: string; message?: string };
+      const code = errObj.code ?? "unknown";
+      const message = errObj.message ?? "Unknown error";
       return new Error(`Connect error ${code}: ${message}`);
+    }
+    if (typeof nested === "string" && nested) {
+      return new Error(`Connect error: ${nested}`);
+    }
+    // Connect-RPC trailers sometimes use top-level code / message
+    if (typeof payload?.code === "string" && typeof payload?.message === "string") {
+      return new Error(`Connect error ${payload.code}: ${payload.message}`);
+    }
+    if (typeof payload?.message === "string" && payload.message) {
+      return new Error(payload.message);
     }
     return null;
   } catch {
