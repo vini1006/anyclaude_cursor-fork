@@ -1,5 +1,5 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { generatePKCE, buildLoginUrl, parseTokenExpiry, pollForTokens, setSleepImplementation, clearSleepImplementation } from "./cursor-auth";
+import { generatePKCE, buildLoginUrl, parseTokenExpiry, pollForTokens, setSleepImplementation, clearSleepImplementation, type PKCEParams } from "./cursor-auth";
 
 describe("generatePKCE", () => {
   test("generates valid PKCE parameters", async () => {
@@ -33,7 +33,8 @@ describe("generatePKCE", () => {
 
 describe("buildLoginUrl", () => {
   test("builds correct login URL", () => {
-    const params = {
+    const params: PKCEParams = {
+      verifier: "test_verifier",
       challenge: "test_challenge",
       uuid: "test-uuid-123",
     };
@@ -48,7 +49,8 @@ describe("buildLoginUrl", () => {
   });
 
   test("URL encodes special characters in parameters", () => {
-    const params = {
+    const params: PKCEParams = {
+      verifier: "test_verifier",
       challenge: "test+challenge/with=special&chars",
       uuid: "test-uuid-123",
     };
@@ -122,7 +124,7 @@ describe("parseTokenExpiry", () => {
 
 describe("pollForTokens", () => {
   let originalFetch: typeof global.fetch;
-  let fetchMock: ReturnType<typeof mock>;
+  let fetchMock: ReturnType<typeof mock> | undefined;
 
   beforeEach(() => {
     originalFetch = global.fetch;
@@ -144,13 +146,11 @@ describe("pollForTokens", () => {
       refreshToken: "mock-refresh-token",
     };
 
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 200,
-        json: () => Promise.resolve(mockTokens),
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock(((url: string) => Promise.resolve({
+      status: 200,
+      json: () => Promise.resolve(mockTokens),
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     const result = await pollForTokens("test-uuid", "test-verifier");
 
@@ -166,7 +166,7 @@ describe("pollForTokens", () => {
     };
 
     let callCount = 0;
-    fetchMock = mock(() => {
+    fetchMock = mock(((url: string) => {
       callCount++;
       if (callCount < 3) {
         return Promise.resolve({
@@ -178,8 +178,8 @@ describe("pollForTokens", () => {
         status: 200,
         json: () => Promise.resolve(mockTokens),
       } as Response);
-    });
-    global.fetch = fetchMock;
+    }) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     const result = await pollForTokens("test-uuid", "test-verifier");
 
@@ -188,13 +188,11 @@ describe("pollForTokens", () => {
   });
 
   test("times out after max attempts with 404 responses", async () => {
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 404,
-        statusText: "Not Found",
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock((() => Promise.resolve({
+      status: 404,
+      statusText: "Not Found",
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
       "Authentication timeout after 150 attempts"
@@ -202,13 +200,11 @@ describe("pollForTokens", () => {
   });
 
   test("handles non-200/404 error responses", async () => {
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 500,
-        statusText: "Internal Server Error",
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock((() => Promise.resolve({
+      status: 500,
+      statusText: "Internal Server Error",
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
       "Unexpected response status: 500"
@@ -216,10 +212,10 @@ describe("pollForTokens", () => {
   });
 
   test("handles fetch network errors", async () => {
-    fetchMock = mock(() =>
+    fetchMock = mock((() =>
       Promise.reject(new Error("Network error"))
-    );
-    global.fetch = fetchMock;
+    ) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     // Network errors cause immediate throw on first attempt
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
@@ -228,13 +224,11 @@ describe("pollForTokens", () => {
   });
 
   test("handles incomplete token response (missing accessToken)", async () => {
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 200,
-        json: () => Promise.resolve({ refreshToken: "only-refresh" }),
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock((() => Promise.resolve({
+      status: 200,
+      json: () => Promise.resolve({ refreshToken: "only-refresh" }),
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
       "Authentication timeout"
@@ -242,13 +236,11 @@ describe("pollForTokens", () => {
   });
 
   test("handles incomplete token response (missing refreshToken)", async () => {
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 200,
-        json: () => Promise.resolve({ accessToken: "only-access" }),
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock((() => Promise.resolve({
+      status: 200,
+      json: () => Promise.resolve({ accessToken: "only-access" }),
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await expect(pollForTokens("test-uuid", "test-verifier")).rejects.toThrow(
       "Authentication timeout"
@@ -258,7 +250,7 @@ describe("pollForTokens", () => {
 
 describe("CURSOR_API_URL environment variable", () => {
   let originalFetch: typeof global.fetch;
-  let fetchMock: ReturnType<typeof mock>;
+  let fetchMock: ReturnType<typeof mock> | undefined;
   let originalApiUrl: string | undefined;
 
   beforeEach(() => {
@@ -289,17 +281,15 @@ describe("CURSOR_API_URL environment variable", () => {
       refreshToken: "mock-refresh-token",
     };
 
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 200,
-        json: () => Promise.resolve(mockTokens),
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock((() => Promise.resolve({
+      status: 200,
+      json: () => Promise.resolve(mockTokens),
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await pollForTokens("test-uuid", "test-verifier");
 
-    const callArg = (fetchMock.mock.calls[0][0] as string);
+    const callArg = fetchMock!.mock.calls[0]![0] as string;
     expect(callArg).toContain("https://api2.cursor.sh/auth/poll");
   });
 
@@ -311,17 +301,15 @@ describe("CURSOR_API_URL environment variable", () => {
       refreshToken: "mock-refresh-token",
     };
 
-    fetchMock = mock(() =>
-      Promise.resolve({
-        status: 200,
-        json: () => Promise.resolve(mockTokens),
-      } as Response)
-    );
-    global.fetch = fetchMock;
+    fetchMock = mock((() => Promise.resolve({
+      status: 200,
+      json: () => Promise.resolve(mockTokens),
+    } as Response)) as unknown as typeof fetch);
+    global.fetch = fetchMock as unknown as typeof global.fetch;
 
     await pollForTokens("test-uuid", "test-verifier");
 
-    const callArg = (fetchMock.mock.calls[0][0] as string);
+    const callArg = fetchMock!.mock.calls[0]![0] as string;
     expect(callArg).toContain("https://custom.cursor.api/auth/poll");
   });
 });
@@ -345,7 +333,7 @@ describe("poll backoff", () => {
 
     // Delays should increase
     for (let i = 1; i < delays.length; i++) {
-      expect(delays[i]).toBeGreaterThan(delays[i - 1]);
+      expect(delays[i]!).toBeGreaterThan(delays[i - 1]!);
     }
 
     // Should not exceed max delay

@@ -13,7 +13,7 @@ const POLL_BACKOFF_MULTIPLIER = 1.2;
 // Token expiry safety margin (5 minutes)
 const TOKEN_SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
-interface PKCEParams {
+export interface PKCEParams {
   verifier: string;
   challenge: string;
   uuid: string;
@@ -62,7 +62,7 @@ export async function pollForTokens(
       );
 
       if (response.status === 200) {
-        const data = await response.json();
+        const data = await response.json() as { accessToken?: string; refreshToken?: string };
         if (data.accessToken && data.refreshToken) {
           debug(1, "Cursor authentication successful");
           const expiry = parseTokenExpiry(data.accessToken);
@@ -103,21 +103,21 @@ export function parseTokenExpiry(token: string): number {
     }
 
     const payload = parts[1];
-    const decoded = Buffer.from(payload, "base64url").toString("utf8");
+    const decoded = Buffer.from(payload ?? "", "base64url").toString("utf8");
     const payloadObj = JSON.parse(decoded);
 
     if (payloadObj.exp) {
       return payloadObj.exp * 1000 - TOKEN_SAFETY_MARGIN_MS;
     }
   } catch (error) {
-    debug(2, `Failed to parse token expiry: ${error.message}`);
+    debug(2, `Failed to parse token expiry: ${(error as Error).message}`);
   }
 
   return Date.now() + 60 * 60 * 1000 - TOKEN_SAFETY_MARGIN_MS;
 }
 
 // Configurable sleep function for testing
-let sleepImpl: (ms: number) => Promise<void> | undefined;
+let sleepImpl: ((ms: number) => Promise<void>) | undefined;
 
 export function setSleepImplementation(impl: (ms: number) => Promise<void>): void {
   sleepImpl = impl;
@@ -158,8 +158,8 @@ export async function runCursorAuth(): Promise<void> {
     console.log("✓ Authentication successful. Tokens saved.");
     console.log(`  Storage: ${getCursorStoragePath()}`);
   } catch (error) {
-    queueErrorMessage(`✗ Authentication failed: ${error.message}`);
-    debug(1, `Cursor auth error: ${error.message}`);
+    queueErrorMessage(`✗ Authentication failed: ${(error as Error).message}`);
+    debug(1, `Cursor auth error: ${(error as Error).message}`);
     process.exit(1);
   }
 }

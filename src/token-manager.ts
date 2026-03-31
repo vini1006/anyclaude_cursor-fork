@@ -82,7 +82,7 @@ export class TokenManager {
       );
     }
 
-    const data = await response.json();
+    const data = await response.json() as { accessToken?: string; refreshToken?: string };
     if (!data.accessToken || !data.refreshToken) {
       throw new Error("Invalid token refresh response");
     }
@@ -104,7 +104,7 @@ export class TokenManager {
       }
 
       const payload = parts[1];
-      const decoded = Buffer.from(payload, "base64url").toString("utf8");
+      const decoded = Buffer.from(payload ?? "", "base64url").toString("utf8");
       const payloadObj = JSON.parse(decoded);
 
       if (payloadObj.exp) {
