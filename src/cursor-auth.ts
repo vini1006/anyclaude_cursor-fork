@@ -1,8 +1,17 @@
 import * as os from "os";
 import * as path from "path";
 import open from "open";
-import { TokenManager, type CursorTokens } from "./token-manager";
-import { debug } from "./debug";
+import { TokenManager, type CursorTokens, getCursorStoragePath } from "./token-manager";
+import { debug, queueErrorMessage } from "./debug";
+
+// Polling configuration constants
+const POLL_MAX_ATTEMPTS = 150;
+const POLL_BASE_DELAY_MS = 1000;
+const POLL_MAX_DELAY_MS = 10000;
+const POLL_BACKOFF_MULTIPLIER = 1.2;
+
+// Token expiry safety margin (5 minutes)
+const TOKEN_SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
 interface PKCEParams {
   verifier: string;
@@ -36,21 +45,16 @@ export function buildLoginUrl(params: PKCEParams): string {
   return `${baseUrl}?${queryParams.toString()}`;
 }
 
-async function pollForTokens(
+export async function pollForTokens(
   uuid: string,
   verifier: string
 ): Promise<CursorTokens> {
   const apiUrl = process.env.CURSOR_API_URL || "https://api2.cursor.sh";
   const pollUrl = `${apiUrl}/auth/poll`;
 
-  const maxAttempts = 150;
-  const baseDelay = 1000;
-  const maxDelay = 10000;
-  const backoffMultiplier = 1.2;
+  let delay = POLL_BASE_DELAY_MS;
 
-  let delay = baseDelay;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 1; attempt <= POLL_MAX_ATTEMPTS; attempt++) {
     try {
       const response = await fetch(
         `${pollUrl}?uuid=${encodeURIComponent(uuid)}&verifier=${encodeURIComponent(verifier)}`,
@@ -69,29 +73,29 @@ async function pollForTokens(
           };
         }
       } else if (response.status === 404) {
-        debug(2, `Poll attempt ${attempt}/${maxAttempts}, waiting...`);
+        debug(2, `Poll attempt ${attempt}/${POLL_MAX_ATTEMPTS}, waiting...`);
       } else {
         throw new Error(
           `Unexpected response status: ${response.status} ${response.statusText}`
         );
       }
     } catch (error) {
-      if (attempt === maxAttempts) {
+      if (attempt === POLL_MAX_ATTEMPTS) {
         throw error;
       }
       debug(2, `Poll attempt ${attempt} failed, retrying...`);
     }
 
     await sleep(delay);
-    delay = Math.min(delay * backoffMultiplier, maxDelay);
+    delay = Math.min(delay * POLL_BACKOFF_MULTIPLIER, POLL_MAX_DELAY_MS);
   }
 
   throw new Error(
-    `Authentication timeout after ${maxAttempts} attempts. Please try again.`
+    `Authentication timeout after ${POLL_MAX_ATTEMPTS} attempts. Please try again.`
   );
 }
 
-function parseTokenExpiry(token: string): number {
+export function parseTokenExpiry(token: string): number {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) {
@@ -103,16 +107,30 @@ function parseTokenExpiry(token: string): number {
     const payloadObj = JSON.parse(decoded);
 
     if (payloadObj.exp) {
-      return payloadObj.exp * 1000 - 5 * 60 * 1000;
+      return payloadObj.exp * 1000 - TOKEN_SAFETY_MARGIN_MS;
     }
   } catch (error) {
     debug(2, `Failed to parse token expiry: ${error.message}`);
   }
 
-  return Date.now() + 60 * 60 * 1000 - 5 * 60 * 1000;
+  return Date.now() + 60 * 60 * 1000 - TOKEN_SAFETY_MARGIN_MS;
 }
 
-function sleep(ms: number): Promise<void> {
+// Configurable sleep function for testing
+let sleepImpl: (ms: number) => Promise<void> | undefined;
+
+export function setSleepImplementation(impl: (ms: number) => Promise<void>): void {
+  sleepImpl = impl;
+}
+
+export function clearSleepImplementation(): void {
+  sleepImpl = undefined;
+}
+
+export function sleep(ms: number): Promise<void> {
+  if (sleepImpl) {
+    return sleepImpl(ms);
+  }
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -138,11 +156,10 @@ export async function runCursorAuth(): Promise<void> {
     await tokenManager.saveTokens(tokens);
 
     console.log("✓ Authentication successful. Tokens saved.");
-    console.log(
-      `  Storage: ${path.join(os.homedir(), ".local", "share", "anyclaude", "cursor-auth.json")}`
-    );
+    console.log(`  Storage: ${getCursorStoragePath()}`);
   } catch (error) {
-    console.error("✗ Authentication failed:", error.message);
+    queueErrorMessage(`✗ Authentication failed: ${error.message}`);
+    debug(1, `Cursor auth error: ${error.message}`);
     process.exit(1);
   }
 }
