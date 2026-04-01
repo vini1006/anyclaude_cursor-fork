@@ -1,6 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { debug } from "./debug";
+import { getPossibleAuthPaths } from "./cursor-auth";
 
 export interface CursorTokens {
   accessToken: string;
@@ -8,6 +10,9 @@ export interface CursorTokens {
   expires: number;
 }
 
+/**
+ * Get the anyclaude-specific token storage path
+ */
 export function getCursorStoragePath(): string {
   const dataHome = process.env.XDG_DATA_HOME;
   const baseDir = dataHome || path.join(os.homedir(), ".local", "share");
@@ -21,26 +26,75 @@ function ensureStorageDirectory(storagePath: string): void {
   }
 }
 
+/**
+ * Read tokens from cursor's native auth file (cli-config.json or auth.json)
+ */
+function readCursorNativeAuth(): CursorTokens | null {
+  const possiblePaths = getPossibleAuthPaths();
+  
+  for (const authPath of possiblePaths) {
+    if (!fs.existsSync(authPath)) {
+      continue;
+    }
+    
+    try {
+      const content = fs.readFileSync(authPath, "utf8");
+      const data = JSON.parse(content);
+      
+      // cli-config.json format
+      if (data.accessToken || data.refreshToken) {
+        debug(2, "Found cursor auth file", { path: authPath, format: "cli-config.json" });
+        return {
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          expires: data.expires || (Date.now() + 60 * 60 * 1000 - 5 * 60 * 1000),
+        };
+      }
+      
+      // auth.json format (legacy)
+      if (data.token || data.access_token) {
+        debug(2, "Found cursor auth file", { path: authPath, format: "auth.json" });
+        return {
+          accessToken: data.token || data.access_token,
+          refreshToken: data.refresh_token || "",
+          expires: data.expires || (Date.now() + 60 * 60 * 1000 - 5 * 60 * 1000),
+        };
+      }
+    } catch (error) {
+      debug(2, "Failed to read cursor auth file", { path: authPath, error: (error as Error).message });
+    }
+  }
+  
+  return null;
+}
+
 export class TokenManager {
   constructor(private storagePath: string = getCursorStoragePath()) {}
 
   async loadTokens(): Promise<CursorTokens | null> {
+    // Priority 1: Check anyclaude-specific storage
     try {
-      if (!fs.existsSync(this.storagePath)) {
-        return null;
+      if (fs.existsSync(this.storagePath)) {
+        const content = await fs.promises.readFile(this.storagePath, "utf8");
+        const tokens = JSON.parse(content) as CursorTokens;
+
+        if (tokens.accessToken && tokens.refreshToken && tokens.expires) {
+          debug(2, "Loaded tokens from anyclaude storage", { path: this.storagePath });
+          return tokens;
+        }
       }
-
-      const content = await fs.promises.readFile(this.storagePath, "utf8");
-      const tokens = JSON.parse(content) as CursorTokens;
-
-      if (!tokens.accessToken || !tokens.refreshToken || !tokens.expires) {
-        return null;
-      }
-
-      return tokens;
     } catch (error) {
-      return null;
+      debug(2, "Failed to load tokens from anyclaude storage", { error: (error as Error).message });
     }
+
+    // Priority 2: Check cursor's native auth file
+    const nativeAuth = readCursorNativeAuth();
+    if (nativeAuth) {
+      debug(2, "Using tokens from cursor native auth");
+      return nativeAuth;
+    }
+
+    return null;
   }
 
   async saveTokens(tokens: CursorTokens): Promise<void> {
@@ -51,6 +105,8 @@ export class TokenManager {
       encoding: "utf8",
       mode: 0o600,
     });
+    
+    debug(2, "Saved tokens to anyclaude storage", { path: this.storagePath });
   }
 
   needsRefresh(tokens: CursorTokens): boolean {

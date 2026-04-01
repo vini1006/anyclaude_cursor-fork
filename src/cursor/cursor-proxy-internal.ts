@@ -103,6 +103,8 @@ interface OpenAIMessage {
   content: string | null | ContentPart[];
   tool_call_id?: string;
   tool_calls?: OpenAIToolCall[];
+  /** Anthropic Agent SDK: true when the tool result represents an error. */
+  is_error?: boolean;
 }
 
 interface OpenAIToolDef {
@@ -578,12 +580,21 @@ function handleChatCompletion(
 interface ToolResultInfo {
   toolCallId: string;
   content: string;
+  /** True when the tool result represents an error (maps to McpError). */
+  isError?: boolean;
+}
+
+interface ConversationTurn {
+  userText: string;
+  assistantText: string;
+  /** True when the assistant message had tool_calls (content may be empty). */
+  hasToolCalls: boolean;
 }
 
 interface ParsedMessages {
   systemPrompt: string;
   userText: string;
-  turns: Array<{ userText: string; assistantText: string }>;
+  turns: ConversationTurn[];
   toolResults: ToolResultInfo[];
 }
 
@@ -592,17 +603,14 @@ function textContent(content: OpenAIMessage["content"]): string {
   if (content == null) return "";
   if (typeof content === "string") return content;
   return content
-    .filter((p) => p.type === "text" && p.text)
+    .filter((p) => p.type === "text" && p.text != null)
     .map((p) => p.text!)
     .join("\n");
 }
 
 function parseMessages(messages: OpenAIMessage[]): ParsedMessages {
   let systemPrompt = "You are a helpful assistant.";
-  const pairs: Array<{ userText: string; assistantText: string }> = [];
-  const toolResults: ToolResultInfo[] = [];
 
-  // Collect system messages
   const systemParts = messages
     .filter((m) => m.role === "system")
     .map((m) => textContent(m.content));
@@ -610,29 +618,57 @@ function parseMessages(messages: OpenAIMessage[]): ParsedMessages {
     systemPrompt = systemParts.join("\n");
   }
 
-  // Separate tool results from conversation turns
   const nonSystem = messages.filter((m) => m.role !== "system");
+
+  // Find trailing tool messages (after the last assistant message)
+  let lastAssistantIdx = -1;
+  for (let i = nonSystem.length - 1; i >= 0; i--) {
+    if (nonSystem[i]!.role === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+
+  // Trailing tool results = messages after the last assistant message
+  const toolResults: ToolResultInfo[] = [];
+  if (lastAssistantIdx >= 0) {
+    for (let i = lastAssistantIdx + 1; i < nonSystem.length; i++) {
+      const msg = nonSystem[i]!;
+      if (msg.role === "tool") {
+        toolResults.push({
+          toolCallId: msg.tool_call_id ?? "",
+          content: textContent(msg.content),
+          isError: msg.is_error === true,
+        });
+      }
+    }
+  }
+
+  // Build turns from history up to (but not including) trailing tool messages
+  const historyMsgs =
+    lastAssistantIdx >= 0
+      ? nonSystem.slice(0, lastAssistantIdx + 1)
+      : nonSystem;
+
+  const pairs: ConversationTurn[] = [];
   let pendingUser = "";
 
-  for (const msg of nonSystem) {
-    if (msg.role === "tool") {
-      toolResults.push({
-        toolCallId: msg.tool_call_id ?? "",
-        content: textContent(msg.content),
-      });
-    } else if (msg.role === "user") {
+  for (const msg of historyMsgs) {
+    if (msg.role === "user") {
       if (pendingUser) {
-        pairs.push({ userText: pendingUser, assistantText: "" });
+        pairs.push({ userText: pendingUser, assistantText: "", hasToolCalls: false });
       }
       pendingUser = textContent(msg.content);
     } else if (msg.role === "assistant") {
-      // Skip assistant messages that are just tool_calls with no text
       const text = textContent(msg.content);
+      const hasToolCalls = !!(msg.tool_calls && msg.tool_calls.length > 0);
       if (pendingUser) {
-        pairs.push({ userText: pendingUser, assistantText: text });
+        pairs.push({ userText: pendingUser, assistantText: text, hasToolCalls });
         pendingUser = "";
       }
+      // assistant messages with no preceding user are skipped
     }
+    // tool messages within history are skipped (part of assistant context, not new turns)
   }
 
   let lastUserText = "";
@@ -692,7 +728,7 @@ function buildCursorRequest(
   modelId: string,
   systemPrompt: string,
   userText: string,
-  turns: Array<{ userText: string; assistantText: string }>,
+  turns: ConversationTurn[],
   conversationId: string,
   checkpoint: Uint8Array | null,
   existingBlobStore?: Map<string, Uint8Array>
@@ -723,7 +759,9 @@ function buildCursorRequest(
       const userMsgBytes = toBinary(UserMessageSchema, userMsg);
 
       const stepBytes: Uint8Array[] = [];
-      if (turn.assistantText) {
+      // Include step when there's text content OR when the assistant made tool calls
+      // (tool-call-only messages have empty text but must be represented in the turn).
+      if (turn.assistantText || turn.hasToolCalls) {
         const step = create(ConversationStepSchema, {
           message: {
             case: "assistantMessage",
@@ -1368,6 +1406,7 @@ function createBridgeStreamResponse(
       const tagFilter = createThinkingTagFilter();
 
       let mcpExecReceived = false;
+      let mcpFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
       const processChunk = createConnectFrameParser(
         (messageBytes) => {
@@ -1393,15 +1432,21 @@ function createBridgeStreamResponse(
                 }
               },
               // onMcpExec — the model wants to execute a tool.
+              // Cursor sends each mcpArgs as a separate frame/packet, so multiple execs
+              // may arrive as consecutive I/O events. We reset a debounce timer on each
+              // exec so the stream only closes after the last exec in the batch.
               (exec) => {
                 state.pendingExecs.push(exec);
                 mcpExecReceived = true;
 
-                const flushed = tagFilter.flush();
-                if (flushed.reasoning)
-                  sendSSE(makeChunk({ reasoning_content: flushed.reasoning }));
-                if (flushed.content)
-                  sendSSE(makeChunk({ content: flushed.content }));
+                if (state.pendingExecs.length === 1) {
+                  // Flush buffered thinking/text before the first tool_call chunk.
+                  const flushed = tagFilter.flush();
+                  if (flushed.reasoning)
+                    sendSSE(makeChunk({ reasoning_content: flushed.reasoning }));
+                  if (flushed.content)
+                    sendSSE(makeChunk({ content: flushed.content }));
+                }
 
                 const toolCallIndex = state.toolCallIndex++;
                 sendSSE(
@@ -1420,27 +1465,35 @@ function createBridgeStreamResponse(
                   })
                 );
 
-                // Sync blobs immediately so they survive if bridge closes before resume.
-                const storedForSync = conversationStates.get(convKey);
-                if (storedForSync) {
-                  for (const [k, v] of blobStore)
-                    storedForSync.blobStore.set(k, v);
-                  storedForSync.lastAccessMs = Date.now();
-                }
+                // Cancel any previously scheduled flush and reschedule.
+                // This debounces: the stream closes only after no new execs arrive
+                // for 20ms, ensuring the full batch is accumulated.
+                if (mcpFlushTimer !== null) clearTimeout(mcpFlushTimer);
+                mcpFlushTimer = setTimeout(() => {
+                  mcpFlushTimer = null;
 
-                // Keep the bridge alive for tool result continuation.
-                activeBridges.set(bridgeKey, {
-                  bridge,
-                  heartbeatTimer,
-                  blobStore,
-                  mcpTools,
-                  pendingExecs: state.pendingExecs,
-                  convKey,
-                });
+                  // Sync blobs so they survive if bridge closes before resume.
+                  const storedForSync = conversationStates.get(convKey);
+                  if (storedForSync) {
+                    for (const [k, v] of blobStore)
+                      storedForSync.blobStore.set(k, v);
+                    storedForSync.lastAccessMs = Date.now();
+                  }
 
-                sendSSE(makeChunk({}, "tool_calls"));
-                sendDone();
-                closeController();
+                  // Keep the bridge alive for tool result continuation.
+                  activeBridges.set(bridgeKey, {
+                    bridge,
+                    heartbeatTimer,
+                    blobStore,
+                    mcpTools,
+                    pendingExecs: state.pendingExecs,
+                    convKey,
+                  });
+
+                  sendSSE(makeChunk({}, "tool_calls"));
+                  sendDone();
+                  closeController();
+                }, 20);
               },
               (checkpointBytes) => {
                 const stored = conversationStates.get(convKey);
@@ -1469,6 +1522,29 @@ function createBridgeStreamResponse(
 
       bridge.onClose((code) => {
         clearInterval(heartbeatTimer);
+        // If a debounced mcpExec flush is pending, fire it immediately before
+        // the bridge closes so the activeBridges entry is set in time.
+        if (mcpFlushTimer !== null) {
+          clearTimeout(mcpFlushTimer);
+          mcpFlushTimer = null;
+          const storedForSync = conversationStates.get(convKey);
+          if (storedForSync) {
+            for (const [k, v] of blobStore) storedForSync.blobStore.set(k, v);
+            storedForSync.lastAccessMs = Date.now();
+          }
+          activeBridges.set(bridgeKey, {
+            bridge,
+            heartbeatTimer,
+            blobStore,
+            mcpTools,
+            pendingExecs: state.pendingExecs,
+            convKey,
+          });
+          sendSSE(makeChunk({}, "tool_calls"));
+          sendDone();
+          closeController();
+          return;
+        }
         const stored = conversationStates.get(convKey);
         if (stored) {
           for (const [k, v] of blobStore) stored.blobStore.set(k, v);
@@ -1553,33 +1629,42 @@ function handleToolResultResume(
   // Send mcpResult for each pending exec that has a matching tool result
   for (const exec of pendingExecs) {
     const result = toolResults.find((r) => r.toolCallId === exec.toolCallId);
-    const mcpResult = result
+    const mcpResult = !result
       ? create(McpResultSchema, {
-          result: {
-            case: "success",
-            value: create(McpSuccessSchema, {
-              content: [
-                create(McpToolResultContentItemSchema, {
-                  content: {
-                    case: "text",
-                    value: create(McpTextContentSchema, {
-                      text: result.content,
-                    }),
-                  },
-                }),
-              ],
-              isError: false,
-            }),
-          },
-        })
-      : create(McpResultSchema, {
           result: {
             case: "error",
             value: create(McpErrorSchema, {
               error: "Tool result not provided",
             }),
           },
-        });
+        })
+      : result.isError
+        ? create(McpResultSchema, {
+            result: {
+              case: "error",
+              value: create(McpErrorSchema, {
+                error: result.content,
+              }),
+            },
+          })
+        : create(McpResultSchema, {
+            result: {
+              case: "success",
+              value: create(McpSuccessSchema, {
+                content: [
+                  create(McpToolResultContentItemSchema, {
+                    content: {
+                      case: "text",
+                      value: create(McpTextContentSchema, {
+                        text: result.content,
+                      }),
+                    },
+                  }),
+                ],
+                isError: false,
+              }),
+            },
+          });
 
     const execClientMessage = create(ExecClientMessageSchema, {
       id: exec.execMsgId,

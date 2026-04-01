@@ -1,43 +1,55 @@
-import {
-  startCursorProxyInternal,
-  stopCursorProxyInternal,
-} from "./cursor/cursor-proxy-internal";
-import { getCursorModels } from "./cursor/cursor-models";
-import { TokenManager } from "./token-manager";
-import { debug } from "./debug";
+import { createProxyServer } from "./cursor/proxy/server.js";
+import { debug } from "./debug.js";
 
-let proxyPort: number | undefined;
+let proxyInstance: ReturnType<typeof createProxyServer> | null = null;
 
+/**
+ * Find an available port for the proxy server
+ */
 export async function findAvailablePort(): Promise<number> {
-  // Return 0 - internal proxy handles port assignment
+  // This is now handled internally by createProxyServer
   return 0;
 }
 
+/**
+ * Start the Cursor proxy server
+ * Returns a URL and stop function for managing the proxy
+ */
 export async function startCursorProxy(): Promise<{
   url: string;
   stop: () => Promise<void>;
 }> {
-  const tokenManager = new TokenManager();
+  if (proxyInstance) {
+    debug(1, "Cursor proxy already running, returning existing instance");
+    return {
+      url: proxyInstance.getBaseURL(),
+      stop: async () => {
+        await proxyInstance?.stop();
+        proxyInstance = null;
+      },
+    };
+  }
 
-  const getAccessToken = async () => {
-    return await tokenManager.getValidAccessToken();
-  };
+  debug(1, "Starting new Cursor proxy server");
+  
+  proxyInstance = createProxyServer({
+    port: 0, // Auto-assign port
+    host: "127.0.0.1",
+    healthCheckPath: "/health",
+  });
 
-  const token = await getAccessToken();
-  const cursorModels = await getCursorModels(token);
-  const modelRows = cursorModels.map((m) => ({ id: m.id, name: m.name }));
-  debug(1, `Cursor proxy model list: ${modelRows.length} models`);
-
-  const port = await startCursorProxyInternal(getAccessToken, modelRows);
-  proxyPort = port;
-
-  debug(1, `Internal Cursor proxy started on port ${port}`);
+  const url = await proxyInstance.start();
+  
+  debug(1, `Cursor proxy started`, { url });
 
   return {
-    url: `http://localhost:${port}`,
+    url,
     stop: async () => {
-      await stopCursorProxyInternal();
-      proxyPort = undefined;
+      if (proxyInstance) {
+        await proxyInstance.stop();
+        proxyInstance = null;
+        debug(1, "Cursor proxy stopped");
+      }
     },
   };
 }

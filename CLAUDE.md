@@ -2,71 +2,69 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Purpose
 
-anyclaude is a proxy wrapper for Claude Code that enables using alternative LLM providers (OpenAI, Google, xAI, Azure) through the Anthropic API format. It intercepts Anthropic API calls and translates them to/from the Vercel AI SDK format for the specified provider.
+anyclaude wraps the `claude` CLI: it starts a local HTTP server that implements the Anthropic Messages API surface Claude Code expects, forwards traffic through the Vercel AI SDK to configured providers, and runs `claude` with `ANTHROPIC_BASE_URL` pointing at that server. Model IDs look like `<provider>/<model>` (for example `openai/gpt-5-mini`): the segment before the first `/` selects a key in the proxy `providers` map in `src/main.ts`; the remainder is the provider-specific model name. README notes compatibility with Claude Code GitHub Actions.
 
 ## Architecture
 
-The proxy works by:
+1. **`src/main.ts`** — Parses and strips anyclaude-only flags (`--reasoning-effort` / `-e`, `--service-tier` / `-t`) from argv before spawning `claude`, validates allowed values, and builds the `providers` map (`openai`, `azure`, `google`, `xai`, optional `anthropic` when `ANTHROPIC_API_KEY` is set). The OpenAI client uses a custom `fetch` that maps `max_tokens` → `max_completion_tokens`, sets `reasoning` (`summary: "auto"`, plus `reasoning.effort` when `-e` is set), and applies `service_tier` when `-t` is set. On normal runs it **`await`s `initializeCursorProvider`**, which starts the Cursor forwarder (`startCursorProxy`), registers `cursor` with `createCursorProviderWithBaseUrl`, and wires shutdown on exit signals—this runs even when you are not using a `cursor/*` model. Then **`createAnthropicProxy`** returns the local base URL. Unless `PROXY_ONLY=true`, it **`spawn`s `claude`** with `ANTHROPIC_BASE_URL` set. Subcommand **`cursor-auth`** is handled here and does not start the proxy.
 
-1. Spawning a local HTTP server that mimics the Anthropic API
-2. Intercepting `/v1/messages` requests containing `<provider>/<model>` format
-3. Converting Anthropic message format to AI SDK format
-4. Routing to the appropriate provider (OpenAI, Google, xAI, Azure)
-5. Converting responses back to Anthropic format
-6. Setting `ANTHROPIC_BASE_URL` to point Claude Code at the proxy
+2. **`src/anthropic-proxy.ts`** — HTTP server: accept Anthropic-shaped request bodies, convert them for the AI SDK, run **`streamText`** (including tools / JSON schemas), stream responses through **`convert-to-anthropic-stream`**, and map some provider errors into Anthropic-like errors so Claude Code's retry behavior stays sensible.
 
-Key components:
+3. **Conversion layer** — `convert-anthropic-messages`, `convert-to-language-model-prompt`, `convert-to-anthropic-stream`, `json-schema`, and `anthropic-api-types` bridge Anthropic messages, tools, cache details, and streaming events to what the AI SDK expects. Message-shape, tool, or streaming bugs usually need coordinated changes in this layer **and** the proxy.
 
-- `src/main.ts`: Entry point that sets up providers and spawns Claude with proxy
-- `src/anthropic-proxy.ts`: HTTP server that handles request/response translation
-- `src/convert-anthropic-messages.ts`: Bidirectional message format conversion
-- `src/convert-to-anthropic-stream.ts`: Stream response conversion
-- `src/json-schema.ts`: Schema adaptation for different providers
+4. **Cursor** — `src/cursor-auth.ts`, `src/cursor-proxy.ts`, `src/cursor-provider.ts`, and `src/token-manager.ts` integrate with `main.ts`. `startCursorProxy` builds the server from `src/cursor/proxy/` (HTTP handler and request formatting); `src/cursor/streaming/` parses OpenAI-style SSE from Cursor's side of the conversation. OAuth/PKCE, RPC, client calls, and model metadata live in the remaining `src/cursor/*.ts` modules. `createCursorProvider` registers Cursor with the AI SDK (defaults to **proxy** mode against that local server; a **direct** code path exists for alternate wiring).
 
-## Development Commands
+There are no checked-in Cursor rules (`.cursor/rules`, `.cursorrules`) or `.github/copilot-instructions.md` in this repository.
+
+## Commands
+
+Uses **Bun** for installs and scripts. **Lint:** no ESLint; use **`bun run typecheck`** for types and **Prettier** for formatting (`bun run fmt` to write, `bunx prettier --check .` to verify). Tests use **Bun’s test runner** (`bun test`). **`typescript`** is a peer dependency (^5).
 
 ```bash
-# Install dependencies
-bun install
-
-# Build the project (creates dist/main.js with shebang)
-bun run build
-
-# Run the built binary
-bun run ./dist/main.js
-
-# The build command:
-# 1. Compiles TypeScript to CommonJS for Node.js compatibility
-# 2. Adds Node shebang for CLI execution
+bun install                          # dependencies
+bun run build                        # dist/main.cjs + shebanged executable dist/main.js
+bun run typecheck                    # tsc --noEmit
+bun run test                         # all tests (same as bun test)
+bun test src/path/to/file.test.ts    # single file
+bun test -t "pattern"                # filter by test name
+bun test --watch                     # re-run tests on file changes
+bun run fmt                          # Prettier --write .
+bunx prettier --check .              # format check (no writes)
+bun run install:global               # build, npm pack, npm install -g tarball
 ```
 
-## Testing
+End-user install of the published package is described in README (e.g. `pnpm install -g anyclaude`); use `bun install` when developing in this repo. Optional Nix/direnv shell: `direnv allow` or `nix develop`; format Nix/shell with `nix fmt` (see `AGENTS.md`).
 
-Test the proxy manually:
+Develop against source:
 
 ```bash
-# Run in proxy-only mode to get the URL
-PROXY_ONLY=true bun run src/main.ts
-
-# Test with a provider
-OPENAI_API_KEY=your-key bun run src/main.ts --model openai/gpt-5-mini
+bun run src/main.ts [args...]
+bun run src/main.ts cursor-auth
 ```
 
-## Environment Variables
+After build, same as published entry:
 
-Required for each provider:
+```bash
+bun run ./dist/main.js [args...]
+```
 
-- `OPENAI_API_KEY` + optional `OPENAI_API_URL` for OpenAI/OpenRouter
-- `GOOGLE_API_KEY` + optional `GOOGLE_API_URL` for Google
-- `XAI_API_KEY` + optional `XAI_API_URL` for xAI
-- `AZURE_API_KEY` + optional `AZURE_API_URL` for Azure
-- `ANTHROPIC_API_KEY` + optional `ANTHROPIC_API_URL` for Anthropic passthrough
+## Manual checks
 
-Special modes:
+```bash
+PROXY_ONLY=true bun run src/main.ts    # logs proxy URL; does not spawn claude
+OPENAI_API_KEY=... bun run src/main.ts --model openai/gpt-5-mini
+```
 
-- `PROXY_ONLY=true`: Run proxy server without spawning Claude Code
-- `ANYCLAUDE_DEBUG=1|2`: Enable debug logging (1=basic, 2=verbose)
+## Environment and user-facing behavior (README + `main.ts`)
 
-- OpenAI's gpt-5 was released in August 2025
+- **Keys / base URLs:** `OPENAI_*`, `AZURE_*`, `GOOGLE_*`, `XAI_*` (each supports `*_API_KEY` and optional `*_API_URL`). **`ANTHROPIC_API_KEY`** (optional `ANTHROPIC_API_URL`) registers the real Anthropic provider as `anthropic`; if unset, `anthropic` is not in the map.
+- **Cursor:** `CURSOR_OAUTH_TOKEN` for `cursor/*`; `anyclaude cursor-auth` runs OAuth; tokens are stored under `~/.local/share/opencode/auth.json` (see README).
+- **Claude UI:** switch models with `/model <provider>/<model>`.
+- **GPT-5-oriented flags:** `--reasoning-effort` (`-e`: minimal, low, medium, high), `--service-tier` (`-t`: flex, priority). README notes these may apply to other providers later.
+- **Custom OpenAI-compatible endpoints:** `OPENAI_API_URL` (e.g. OpenRouter).
+- **`ANTHROPIC_MODEL` / `ANTHROPIC_SMALL_MODEL`:** support `<provider>/...` syntax (README).
+- **Runtime:** `PROXY_ONLY=true` proxy-only mode; `ANYCLAUDE_DEBUG=1|2` logging in `src/debug.ts`.
+
+For which environment variables register which provider keys, treat the **`providers` object in `src/main.ts`** as authoritative (README links there; line numbers drift).

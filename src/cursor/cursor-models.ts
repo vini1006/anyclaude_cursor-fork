@@ -1,39 +1,8 @@
 /**
- * Cursor model discovery via GetUsableModels.
- * Uses the H2 bridge for transport. Falls back to a hardcoded list
- * when discovery fails.
+ * Cursor model list
+ * Simplified model discovery - uses hardcoded list
  */
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { z } from "zod";
-import { callCursorUnaryRpc } from "./cursor-rpc";
-import {
-  GetUsableModelsRequestSchema,
-  GetUsableModelsResponseSchema,
-} from "./proto/agent_pb";
-
-const GET_USABLE_MODELS_PATH = "/agent.v1.AgentService/GetUsableModels";
-
-const DEFAULT_CONTEXT_WINDOW = 200_000;
-const DEFAULT_MAX_TOKENS = 64_000;
-
-const CursorModelDetailsSchema = z.object({
-  modelId: z.string(),
-  displayName: z.string().optional().catch(undefined),
-  displayNameShort: z.string().optional().catch(undefined),
-  displayModelId: z.string().optional().catch(undefined),
-  aliases: z
-    .array(z.unknown())
-    .optional()
-    .catch([])
-    .transform((aliases) =>
-      (aliases ?? []).filter(
-        (alias: unknown): alias is string => typeof alias === "string"
-      )
-    ),
-  thinkingDetails: z.unknown().optional(),
-});
-
-type CursorModelDetails = z.infer<typeof CursorModelDetailsSchema>;
+import { debug } from "../debug.js";
 
 export interface CursorModel {
   id: string;
@@ -43,8 +12,29 @@ export interface CursorModel {
   maxTokens: number;
 }
 
-const FALLBACK_MODELS: CursorModel[] = [
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+const DEFAULT_MAX_TOKENS = 64_000;
+
+/**
+ * Default list of Cursor models (sorted by ID)
+ */
+const CURSOR_MODELS: CursorModel[] = [
+  // Auto (default)
+  {
+    id: "auto",
+    name: "Auto (Cursor selects)",
+    reasoning: false,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
   // Claude models
+  {
+    id: "claude-4.5-opus",
+    name: "Claude 4.5 Opus",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
   {
     id: "claude-4.5-sonnet",
     name: "Claude 4.5 Sonnet",
@@ -97,6 +87,20 @@ const FALLBACK_MODELS: CursorModel[] = [
   },
   // Gemini models
   {
+    id: "gemini-3-flash",
+    name: "Gemini 3 Flash",
+    reasoning: true,
+    contextWindow: 250_000,
+    maxTokens: 32_000,
+  },
+  {
+    id: "gemini-3-pro",
+    name: "Gemini 3 Pro",
+    reasoning: true,
+    contextWindow: 500_000,
+    maxTokens: 64_000,
+  },
+  {
     id: "gemini-3.1-pro",
     name: "Gemini 3.1 Pro",
     reasoning: true,
@@ -133,6 +137,13 @@ const FALLBACK_MODELS: CursorModel[] = [
     maxTokens: 128_000,
   },
   {
+    id: "gpt-5.4-high",
+    name: "GPT-5.4 High",
+    reasoning: true,
+    contextWindow: 272_000,
+    maxTokens: 128_000,
+  },
+  {
     id: "gpt-5.4-medium",
     name: "GPT-5.4",
     reasoning: true,
@@ -141,173 +152,56 @@ const FALLBACK_MODELS: CursorModel[] = [
   },
   // Grok models
   {
+    id: "grok",
+    name: "Grok",
+    reasoning: false,
+    contextWindow: 128_000,
+    maxTokens: 64_000,
+  },
+  {
     id: "grok-code-fast-1",
     name: "Grok Code Fast 1",
     reasoning: false,
     contextWindow: 128_000,
     maxTokens: 64_000,
   },
+  // Kimi models
+  {
+    id: "kimi-k2.5",
+    name: "Kimi K2.5",
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
 ];
 
-async function fetchCursorUsableModels(
-  apiKey: string
-): Promise<CursorModel[] | null> {
-  try {
-    const requestPayload = create(GetUsableModelsRequestSchema, {});
-    const requestBody = toBinary(GetUsableModelsRequestSchema, requestPayload);
-
-    const response = await callCursorUnaryRpc({
-      accessToken: apiKey,
-      rpcPath: GET_USABLE_MODELS_PATH,
-      requestBody,
-    });
-
-    if (
-      response.timedOut ||
-      response.exitCode !== 0 ||
-      response.body.length === 0
-    ) {
-      debug(
-        1,
-        `Cursor model discovery failed: timedOut=${response.timedOut}, exitCode=${response.exitCode}, bodyLength=${response.body.length}`
-      );
-      return null;
-    }
-
-    const decoded = decodeGetUsableModelsResponse(response.body);
-    if (!decoded) {
-      debug(1, "Cursor model discovery: failed to decode response");
-      return null;
-    }
-
-    const models = normalizeCursorModels(decoded.models);
-    if (models.length === 0) {
-      debug(1, "Cursor model discovery: no models found in response");
-      return null;
-    }
-
-    return models;
-  } catch (error) {
-    debug(
-      1,
-      `Cursor model discovery failed with error: ${error instanceof Error ? error.message : String(error)}`
-    );
-    return null;
-  }
+/**
+ * Get available Cursor models
+ * Returns the hardcoded model list (already sorted by ID)
+ */
+export async function getCursorModels(_apiKey?: string): Promise<CursorModel[]> {
+  debug(2, "Returning Cursor model list", { count: CURSOR_MODELS.length });
+  return CURSOR_MODELS;
 }
-
-let cachedModels: CursorModel[] | null = null;
 
 /**
- * Get available Cursor models.
- * Attempts to discover models via the GetUsableModels RPC.
- * Falls back to a hardcoded list if discovery fails.
- * Results are cached after the first successful call.
+ * Get a specific model by ID
  */
-export async function getCursorModels(apiKey: string): Promise<CursorModel[]> {
-  if (cachedModels) return cachedModels;
-  const discovered = await fetchCursorUsableModels(apiKey);
-  cachedModels =
-    discovered && discovered.length > 0 ? discovered : FALLBACK_MODELS;
-  return cachedModels;
+export function getCursorModelById(id: string): CursorModel | undefined {
+  return CURSOR_MODELS.find((m) => m.id === id);
 }
 
-/** @internal Test-only. */
+/**
+ * Get all model IDs
+ */
+export function getCursorModelIds(): string[] {
+  return CURSOR_MODELS.map((m) => m.id);
+}
+
+/**
+ * Clear model cache (for testing)
+ * @deprecated No longer used - models are static
+ */
 export function clearModelCache(): void {
-  cachedModels = null;
+  // No-op for backward compatibility
 }
-
-function decodeGetUsableModelsResponse(payload: Uint8Array): {
-  models: readonly unknown[];
-} | null {
-  try {
-    return fromBinary(GetUsableModelsResponseSchema, payload);
-  } catch {
-    const framedBody = decodeConnectUnaryBody(payload);
-    if (!framedBody) return null;
-    try {
-      return fromBinary(GetUsableModelsResponseSchema, framedBody);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function decodeConnectUnaryBody(payload: Uint8Array): Uint8Array | null {
-  if (payload.length < 5) return null;
-
-  let offset = 0;
-  while (offset + 5 <= payload.length) {
-    const flags = payload[offset]!;
-    const view = new DataView(
-      payload.buffer,
-      payload.byteOffset + offset,
-      payload.byteLength - offset
-    );
-    const messageLength = view.getUint32(1, false);
-    const frameEnd = offset + 5 + messageLength;
-    if (frameEnd > payload.length) return null;
-
-    // Compression flag
-    if ((flags & 0b0000_0001) !== 0) return null;
-
-    // End-of-stream flag — skip trailer frames
-    if ((flags & 0b0000_0010) === 0) {
-      return payload.subarray(offset + 5, frameEnd);
-    }
-
-    offset = frameEnd;
-  }
-
-  return null;
-}
-
-function normalizeCursorModels(models: readonly unknown[]): CursorModel[] {
-  if (models.length === 0) return [];
-
-  const byId = new Map<string, CursorModel>();
-  for (const model of models) {
-    const normalized = normalizeSingleModel(model);
-    if (normalized) byId.set(normalized.id, normalized);
-  }
-  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
-}
-
-function normalizeSingleModel(model: unknown): CursorModel | null {
-  const parsed = CursorModelDetailsSchema.safeParse(model);
-  if (!parsed.success) return null;
-
-  const details = parsed.data;
-  const id = details.modelId.trim();
-  if (!id) return null;
-
-  return {
-    id,
-    name: pickDisplayName(details, id),
-    reasoning: Boolean(details.thinkingDetails),
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxTokens: DEFAULT_MAX_TOKENS,
-  };
-}
-
-function pickDisplayName(
-  model: CursorModelDetails,
-  fallbackId: string
-): string {
-  const candidates = [
-    model.displayName,
-    model.displayNameShort,
-    model.displayModelId,
-    ...model.aliases,
-    fallbackId,
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const trimmed = candidate.trim();
-    if (trimmed) return trimmed;
-  }
-  return fallbackId;
-}
-
-// Import debug from debug module
-import { debug } from "../debug";

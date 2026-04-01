@@ -135,6 +135,25 @@ export const createAnthropicProxy = ({
         return;
       }
 
+      // Handle health check and root endpoints
+      if (req.url === "/" || req.url === "/health" || req.url === "/ping") {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+        });
+        res.end(JSON.stringify({ status: "ok", timestamp: Date.now() }));
+        return;
+      }
+
+      // Handle Anthropic API endpoints that we don't proxy
+      // Return empty/success responses to keep Claude Code happy
+      if (req.url.startsWith("/v1/models") || req.url.startsWith("/v1/system")) {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+        });
+        res.end(JSON.stringify({}));
+        return;
+      }
+
       const proxyToAnthropic = (body?: AnthropicMessagesRequest) => {
         delete req.headers["host"];
 
